@@ -7,7 +7,12 @@ and tamper-evident audit logging.
 
 from typing import Any, Dict
 
-from app import access, audit, kem, recovery, store
+from app import access, audit, recovery, store
+
+try:
+    from messaging.protected_read import protected_read as _kem_protected_read
+except ImportError:
+    _kem_protected_read = None
 
 KNOWN_OPS = {"setup", "read", "revoke", "audit", "protected_read"}
 MAX_ID_LEN = 256
@@ -125,6 +130,8 @@ def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
         challenge = request.get("challenge")
         public_key = request.get("public_key")
         request_id = request.get("request_id", "")
+        if request_id:
+            request_id = _validate_str_id(request_id, "request_id")
 
         if not isinstance(challenge, str) or not isinstance(public_key, str):
             raise ValueError("Invalid challenge or public_key format.")
@@ -143,24 +150,20 @@ def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
             return {"decision": "deny"}
 
         body = current_state.get("contents", {}).get(asset, "")
-        try:
-            res = kem.protected_read(body, challenge, public_key)
-            with store.file_lock():
-                audit.append_event(
-                    actor=actor,
-                    action="protected_read",
-                    outcome="allow",
-                    correlation_id=corr_id,
-                )
-            return res
-        except NotImplementedError:
-            with store.file_lock():
-                audit.append_event(
-                    actor=actor,
-                    action="protected_read",
-                    outcome="deny",
-                    correlation_id=corr_id,
-                )
-            return {"decision": "deny"}
+        res = None
+        if _kem_protected_read is not None:
+            try:
+                res = _kem_protected_read(public_key, challenge, body)  # her order
+            except Exception:
+                res = None
+        outcome = "allow" if res is not None else "deny"
+        with store.file_lock():
+            audit.append_event(
+                actor=actor,
+                action="protected_read",
+                outcome=outcome,
+                correlation_id=corr_id,
+            )
+        return res if res is not None else {"decision": "deny"}
 
     raise ValueError("Unhandled operation.")

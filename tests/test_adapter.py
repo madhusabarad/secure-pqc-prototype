@@ -12,6 +12,9 @@ Covers:
 - Invariant enforcement: old backups cannot un-revoke an actor
 """
 
+import base64
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -20,6 +23,8 @@ import subprocess
 import sys
 import tempfile
 import pytest
+
+from pqcrypto.kem.ml_kem_768 import decrypt as ml_kem_decrypt, generate_keypair as ml_kem_generate_keypair
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 ENTRY_SCRIPT = REPO_ROOT / "track4_service.py"
@@ -368,3 +373,80 @@ def test_old_valid_backup_cannot_restore_revoked_actor():
         res_bob = call_op(s_dir, op="read", actor="bob", asset="d2", request_id="r_bob")
         assert res_bob.get("decision") == "allow"
         assert res_bob.get("body") == "b_data"
+
+
+def test_adapter_protected_read_end_to_end():
+    """End-to-end test of protected_read via adapter subprocess with real ML-KEM-768."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        s_dir = Path(temp_dir)
+        os.environ["TRACK4_STATE_DIR"] = str(s_dir)
+
+        # 1. Setup
+        body = "Top-secret PQC payload content 42"
+        setup_resp = call_op(
+            s_dir,
+            op="setup",
+            owners={"asset_secret": "alice", "asset_bob": "bob"},
+            contents={"asset_secret": body, "asset_bob": "bob data"},
+            disabled=[],
+            key_material="kem_test_seed",
+        )
+        assert setup_resp.get("ready") is True
+
+        # Generate real ML-KEM-768 keypair
+        pk, sk = ml_kem_generate_keypair()
+        pk_b64 = base64.b64encode(pk).decode("ascii")
+        challenge = "random-challenge-xyz-98765"
+
+        # 2. Protected read for allowed owner
+        resp = call_op(
+            s_dir,
+            op="protected_read",
+            actor="alice",
+            asset="asset_secret",
+            challenge=challenge,
+            public_key=pk_b64,
+            request_id="req_prot_01",
+        )
+        assert "ciphertext" in resp
+        assert "proof" in resp
+        assert resp.get("decision") != "deny"
+
+        # Decrypt ciphertext with ML-KEM secret key and recompute HMAC
+        ct_bytes = base64.b64decode(resp["ciphertext"], validate=True)
+        shared_secret = ml_kem_decrypt(sk, ct_bytes)
+        expected_msg = (challenge + body).encode("utf-8")
+        expected_proof = hmac.new(shared_secret, expected_msg, hashlib.sha256).hexdigest()
+        assert resp["proof"] == expected_proof
+
+        # Verify audit event for protected_read
+        audit_resp = call_op(s_dir, op="audit", request_id="req_prot_01")
+        assert audit_resp.get("decision") == "allow"
+
+        # 3. Revoked owner -> must return {"decision": "deny"} without ciphertext
+        call_op(s_dir, op="revoke", actor="alice", request_id="req_rev_alice")
+        resp_revoked = call_op(
+            s_dir,
+            op="protected_read",
+            actor="alice",
+            asset="asset_secret",
+            challenge="fresh-challenge-after-revoke",
+            public_key=pk_b64,
+            request_id="req_prot_02",
+        )
+        assert resp_revoked == {"decision": "deny"}
+        assert "ciphertext" not in resp_revoked
+
+        # 4. Garbage key -> must return {"decision": "deny"} without ciphertext
+        resp_garbage = call_op(
+            s_dir,
+            op="protected_read",
+            actor="bob",
+            asset="asset_bob",
+            challenge="challenge-garbage-key",
+            public_key="not-a-valid-base64-or-key",
+            request_id="req_prot_03",
+        )
+        assert resp_garbage == {"decision": "deny"}
+        assert "ciphertext" not in resp_garbage
+

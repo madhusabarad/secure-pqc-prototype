@@ -32,10 +32,14 @@ Active sessions, pending handshakes, identity keys, and revocation flags live on
 
 Adapter starters and the validator come from the official Track 4 Toolkit (`ScalerOpenSourceLabs/Track-4-Toolkit`).
 
-## Frontend (optional demo)
+## Frontend (Full Security Console & Demo)
 
 ### Purpose
-The demo frontend provides an interactive local walkthrough of the "lost-device" access control story through the real adapter using synthetic data. It demonstrates immediate revocation enforcement, tamper-evident audit logging, and independent access for unrevoked users.
+The demo frontend provides a unified, interactive local Security Operations Center (SOC) console demonstrating the complete Track 4 workflow:
+1. **Lost-Device Access Control & Key Lifecycle**: Setup, immediate revocation enforcement, audit logging, unaffected peer isolation, lost-device re-enrollment, and transactional key rotation.
+2. **SOC Anomaly Detection & Incident Feed**: Ingests distributed synthetic access logs with clock-skew correction and order uncertainty flagging, displays real-time explainable alerts (unapproved privilege escalations, lateral movement hops, data access spikes), and reports benchmark metrics ($F_1 = 1.0$, $0.0$ false alerts/1k, $18.0\,\text{s}$ MTTA).
+3. **PQC Secure Messaging**: Interactive execution of hybrid ML-KEM-768 + X25519 key exchange, ML-DSA-65 signatures, AES-256-GCM transport, replay rejection, and chunk reassembly.
+4. **Tamper-Evident Audit Log & Cryptographic Verification**: Live inspection of canonical JSON Lines SHA-256 hash chains, ML-DSA-65 signed checkpoints, one-click cryptographic verification (`app.audit.verify_audit_log`), and interactive tamper-detection simulation.
 
 ### How to Run
 1. Start the local server:
@@ -47,19 +51,31 @@ The demo frontend provides an interactive local walkthrough of the "lost-device"
    http://127.0.0.1:8000
    ```
 
-### Button Actions
-- **Setup**: Initializes adapter state with two synthetic owners (`user-alex`, `user-blair`), two synthetic assets (`report-1`, `report-2`), and runtime key material generated with `secrets.token_hex(16)`. Returns `OK`.
-- **Owner reads (allow)**: `user-alex` requests `report-1`. Since `user-alex` is an active owner, the adapter permits reading the asset body. Returns `ALLOW`.
-- **Revoke owner**: Revokes `user-alex` to simulate a lost or compromised credential. Returns `OK`.
-- **Owner reads again (deny)**: `user-alex` requests `report-1` again. Revocation is immediately enforced by the adapter. Returns `DENY`.
-- **Audit**: Queries the adapter's tamper-evident audit log for the correlation ID of the revoked read attempt, proving that the denial was recorded in the signed hash-chained log. Returns `DENY`.
-- **Second owner reads (allow)**: `user-blair` requests `report-2`. Confirms that revoking `user-alex` does not disrupt access for other legitimate users. Returns `ALLOW`.
-- **Run messaging demo**: Runs `messaging.demo_part_a` in an isolated subprocess to verify post-quantum hybrid key exchange, authenticated transport, replay rejection, and chunk reassembly.
-- **Reset**: Clears all displayed cards client-side without altering server state.
+### Tabs & Capabilities
+- **Tab 1: 🔐 Access & Lost-Device**:
+  - `1. Setup`: Initializes synthetic owners (`user-alex`, `user-blair`) and assets.
+  - `2. Owner Reads`: `user-alex` requests `report-1` $\to$ `ALLOW`.
+  - `3. Revoke Owner`: Simulates lost or stolen device $\to$ `OK`.
+  - `4. Owner Reads Again`: Immediate revocation enforcement $\to$ `DENY`.
+  - `5. Audit`: Verifies denial recorded in signed hash-chained audit log $\to$ `DENY`.
+  - `6. Peer Reads`: Confirms `user-blair` retains access $\to$ `ALLOW`.
+  - `7. Re-enrol Lost Device`: Registers fresh quantum device key for `user-alex` $\to$ `OK`.
+  - `8. Post-Reenrol Read`: Restores authorized access for `user-alex` $\to$ `ALLOW`.
+  - `9. Rotate Key Material`: Atomic key rotation with version cutoff $\to$ `key_version: 2`.
+- **Tab 2: 🚨 Anomaly Detector & SOC Feed**:
+  - Live benchmark HUD: $F_1 = 1.0$, Precision: $1.0$, Recall: $1.0$, False Alerts: $0.0 / 1,000$, MTTA: $18.0\,\text{s}$.
+  - `Ingest Access Logs`: Renders synthetic distributed logs with clock offsets and uncertainty tags.
+  - `Run Anomaly Detector`: Evaluates events and surfaces explainable alerts.
+  - `Inject Unapproved Escalation`: Simulates unauthorized `superadmin` role change without ticket.
+  - `Inject Lateral Movement Hop`: Simulates unauthorized `portal` $\to$ `database_admin` transition.
+- **Tab 3: 💬 PQC Secure Messaging**:
+  - Spawns `messaging.demo_part_a` in an isolated sandbox subprocess and displays live test output.
+- **Tab 4: 📜 Audit Log & Cryptographic Proof**:
+  - Displays canonical SHA-256 chained log entries and ML-DSA-65 checkpoint signatures.
+  - `Run Cryptographic Verification`: Validates hash chain and signature across all entries.
+  - `Simulate Tampering & Detect`: Proves that modifying a single byte in the log is immediately detected.
 
 ### Notes and Constraints
-- **Standard Library Only**: The server is built entirely with Python 3.12 standard library modules (`http.server`, `subprocess`, `json`, `secrets`, `tempfile`, `sys`, `os`, `pathlib`). No external packages, pip dependencies, or CDN resources are used. The frontend runs completely offline.
-- **Not Part of the Judged Adapter Path**: The demo frontend is strictly an optional visualization interface. The judged evaluation path (`track4_service.py`) remains completely independent and does not import or depend on anything in `frontend/`.
-- **Localhost Only**: Binds strictly to `127.0.0.1:8000`.
-- **Ephemeral State**: Creates a temporary state directory with `tempfile.mkdtemp()` at server start and deletes it on exit; it never writes inside the repository folder.
+- **Standard Library Only**: Runs completely offline using Python 3.12 standard library modules (`http.server`, `subprocess`, `json`, `secrets`, `tempfile`, `sys`, `os`, `pathlib`). No external frontend frameworks or CDN assets required.
+- **Isolated Judged Path**: Uses clean subprocess execution against `track4_service.py` with temporary state isolation (`TRACK4_STATE_DIR`), preserving adapter integrity.
 

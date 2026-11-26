@@ -1,28 +1,44 @@
-"""Optional local demo frontend server for Track 4 hackathon project.
+"""Full local demo frontend server for Track 4 hackathon project.
 
-Binds exclusively to 127.0.0.1:8000 and exposes a strictly limited set of fixed
-demo actions executing against the real track4_service adapter process.
+Binds exclusively to 127.0.0.1:8000 and exposes endpoints for:
+1. Access control & lost-device story (setup, read, revoke, reenrol, rotate, audit).
+2. Cybersecurity anomaly detector (synthetic events, explainable alerts, metrics).
+3. PQC secure messaging demo (Part A hybrid key exchange, replay, chunking).
+4. Tamper-evident audit log inspection and cryptographic verification.
+
 Standard library only: http.server, subprocess, json, secrets, tempfile, sys, os, pathlib.
 """
 
 from __future__ import annotations
 
 import atexit
+from datetime import datetime, timezone
 import http.server
 import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 HOST = "127.0.0.1"
 PORT = 8000
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INDEX_HTML_PATH = Path(__file__).resolve().parent / "index.html"
+
+# Add repo root to python path for internal imports
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from app import audit
+from detector import detector as sec_detector
+from detector.evaluator import evaluate_detector
+from detector.time_order import correct_event_time, is_order_uncertain
+from simdata.generator import generate_events, load_approvals
 
 # Temporary state directory for runtime adapter isolation (never inside repo)
 STATE_DIR = tempfile.mkdtemp(prefix="t4_frontend_state_")
@@ -69,6 +85,7 @@ DEMO_KEY_MATERIAL = secrets.token_hex(16)
 # Server-side state tracking correlation IDs for demo steps
 DEMO_STATE: Dict[str, Optional[str]] = {
     "last_denied_read_id": None,
+    "last_reenrol_id": None,
 }
 
 ALLOWED_STEPS = {
@@ -78,6 +95,9 @@ ALLOWED_STEPS = {
     "owner_read_again",
     "audit",
     "second_owner_read",
+    "reenrol_owner",
+    "owner_read_post_reenrol",
+    "rotate_key",
 }
 
 
@@ -149,6 +169,38 @@ def build_step_request(step_name: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         }
         return payload, dict(payload)
 
+    elif step_name == "reenrol_owner":
+        req_id = f"req-reenrol-{secrets.token_hex(6)}"
+        DEMO_STATE["last_reenrol_id"] = req_id
+        payload = {
+            "op": "reenrol",
+            "actor": "user-alex",
+            "new_device": f"dev-quantum-{secrets.token_hex(4)}",
+            "request_id": req_id,
+        }
+        return payload, dict(payload)
+
+    elif step_name == "owner_read_post_reenrol":
+        req_id = f"req-post-reenrol-{secrets.token_hex(6)}"
+        payload = {
+            "op": "read",
+            "actor": "user-alex",
+            "asset": "report-1",
+            "request_id": req_id,
+        }
+        return payload, dict(payload)
+
+    elif step_name == "rotate_key":
+        req_id = f"req-rot-{secrets.token_hex(6)}"
+        payload = {
+            "op": "rotate",
+            "key_material": secrets.token_hex(16),
+            "request_id": req_id,
+        }
+        sanitized = dict(payload)
+        sanitized["key_material"] = "[hidden-new-key]"
+        return payload, sanitized
+
     raise ValueError(f"Unknown step: {step_name}")
 
 
@@ -156,7 +208,7 @@ def run_adapter_step(step_name: str) -> Dict[str, Any]:
     """Execute a step by invoking track4_service.py in a fresh process."""
     try:
         raw_req, sanitized_req = build_step_request(step_name)
-    except Exception as exc:
+    except Exception:
         return {
             "step": step_name,
             "request": {},
@@ -224,7 +276,6 @@ def run_adapter_step(step_name: str) -> Dict[str, Any]:
         else:
             label = "ERROR"
     else:
-        # Responses without a decision (e.g. setup: {"ready": True}, revoke: {})
         label = "OK"
 
     return {
@@ -263,19 +314,165 @@ def run_messaging_demo() -> Dict[str, Any]:
         return {"lines": [], "error": "Failed to run messaging demo process"}
 
 
+def get_detector_metrics() -> Dict[str, Any]:
+    """Run detector evaluation engine and return benchmark metrics."""
+    return evaluate_detector(seed=42, count=1000)
+
+
+def get_sample_events() -> List[Dict[str, Any]]:
+    """Return a curated set of sample simulated security events for UI viewing."""
+    events, _ = generate_events(seed=42, count=60)
+    # Enrich with timestamp correction info
+    enriched = []
+    for evt in events[:50]:
+        e = dict(evt)
+        corr_time, rec_time, late_sec = correct_event_time(evt)
+        e["corrected_time_utc"] = corr_time.isoformat()
+        e["late_delay_sec"] = round(late_sec, 2)
+        enriched.append(e)
+    return enriched
+
+
+def run_detector_on_events(events: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """Run security detector and return explainable alerts."""
+    if events is None:
+        events, _ = generate_events(seed=42, count=100)
+    return sec_detector.run(events)
+
+
+def inject_attack(attack_type: str) -> Dict[str, Any]:
+    """Inject a specific attack scenario and return the detector's alert response."""
+    now_utc = datetime.now(timezone.utc).isoformat()
+    evt_id = f"evt_inj_{secrets.token_hex(4)}"
+
+    if attack_type == "privilege_escalation":
+        event = {
+            "event_id": evt_id,
+            "event_time_utc": now_utc,
+            "actor": "user07",
+            "source_service": "portal",
+            "target_service": "auth",
+            "action": "role_change",
+            "role_before": "user",
+            "role_after": "superadmin",
+            "approval_id": None,
+            "source_clock_offset_ms": 120,
+        }
+    elif attack_type == "lateral_movement":
+        event = {
+            "event_id": evt_id,
+            "event_time_utc": now_utc,
+            "actor": "user03",
+            "source_service": "portal",
+            "target_service": "database_admin",
+            "action": "query",
+            "role_before": "analyst",
+            "role_after": "analyst",
+            "source_clock_offset_ms": -50,
+        }
+    else:
+        return {"error": f"Unknown attack type: {attack_type}"}
+
+    alerts = sec_detector.run([event])
+    return {
+        "injected_event": event,
+        "alerts": alerts,
+        "detected": len(alerts) > 0,
+    }
+
+
+def get_audit_log_entries() -> Dict[str, Any]:
+    """Read audit.log and checkpoint.json from the active STATE_DIR."""
+    state_path = Path(STATE_DIR)
+    log_file = state_path / "audit.log"
+    checkpoint_file = state_path / "checkpoint.json"
+
+    entries = []
+    if log_file.is_file():
+        with open(log_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except Exception:
+                        entries.append({"raw": line, "corrupted": True})
+
+    checkpoint = None
+    if checkpoint_file.is_file():
+        try:
+            with open(checkpoint_file, "r", encoding="utf-8") as f:
+                checkpoint = json.load(f)
+        except Exception:
+            checkpoint = {"error": "Failed reading checkpoint"}
+
+    return {
+        "entries": entries,
+        "count": len(entries),
+        "checkpoint": checkpoint,
+    }
+
+
+def verify_active_audit_log() -> Dict[str, Any]:
+    """Run cryptographic verification over the current audit log."""
+    return audit.verify_audit_log(Path(STATE_DIR))
+
+
+def run_tamper_test() -> Dict[str, Any]:
+    """Create a temporary sandbox copy, tamper with one entry, and prove detection."""
+    with tempfile.TemporaryDirectory(prefix="t4-tamper-test-") as temp_dir:
+        src = Path(STATE_DIR)
+        dst = Path(temp_dir)
+        log_file = src / "audit.log"
+        cp_file = src / "checkpoint.json"
+        key_file = src / "audit_signing_key.json"
+
+        if not log_file.is_file():
+            return {"error": "No audit log exists yet. Run Setup first."}
+
+        shutil.copy2(log_file, dst / "audit.log")
+        if cp_file.is_file():
+            shutil.copy2(cp_file, dst / "checkpoint.json")
+        if key_file.is_file():
+            shutil.copy2(key_file, dst / "audit_signing_key.json")
+
+        # Read lines, modify one line
+        lines = []
+        with open(dst / "audit.log", "r", encoding="utf-8") as f:
+            lines = [l.strip() for l in f if l.strip()]
+
+        if not lines:
+            return {"error": "Audit log is empty."}
+
+        # Modify middle or last entry's action
+        target_idx = max(0, len(lines) - 1)
+        entry = json.loads(lines[target_idx])
+        original_actor = entry.get("actor", "system")
+        entry["actor"] = "attacker_spoofed"
+        lines[target_idx] = json.dumps(entry, sort_keys=True)
+
+        with open(dst / "audit.log", "w", encoding="utf-8") as f:
+            for l in lines:
+                f.write(l + "\n")
+
+        # Verify the tampered directory
+        report = audit.verify_audit_log(dst)
+        return {
+            "tampered_line": target_idx + 1,
+            "original_actor": original_actor,
+            "tampered_actor": "attacker_spoofed",
+            "verification_report": report,
+            "tamper_detected": not report.get("valid", True),
+        }
+
+
 class DemoHandler(http.server.BaseHTTPRequestHandler):
-    """Single-purpose HTTP handler serving only index.html and fixed API endpoints."""
+    """Single-purpose HTTP handler serving index.html and API endpoints."""
 
     def log_message(self, format: str, *args: Any) -> None:
-        # Minimal logging; never echo request payloads or secrets
         sys.stderr.write(f"[{self.log_date_time_string()}] {format % args}\n")
 
-    def _send_bytes(
-        self,
-        status: int,
-        content_type: str,
-        body: bytes,
-    ) -> None:
+    def _send_bytes(self, status: int, content_type: str, body: bytes) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
@@ -291,7 +488,7 @@ class DemoHandler(http.server.BaseHTTPRequestHandler):
         self._send_bytes(404, "text/plain; charset=utf-8", b"Not Found\n")
 
     def do_GET(self) -> None:
-        if self.path == "/":
+        if self.path == "/" or self.path == "/index.html":
             if not INDEX_HTML_PATH.is_file():
                 self._send_bytes(500, "text/plain; charset=utf-8", b"index.html missing\n")
                 return
@@ -300,14 +497,31 @@ class DemoHandler(http.server.BaseHTTPRequestHandler):
                 self._send_bytes(200, "text/html; charset=utf-8", html_bytes)
             except Exception:
                 self._send_bytes(500, "text/plain; charset=utf-8", b"Failed reading index.html\n")
+
+        elif self.path == "/api/detector/metrics":
+            metrics = get_detector_metrics()
+            self._send_json(200, metrics)
+
+        elif self.path == "/api/detector/events":
+            events = get_sample_events()
+            self._send_json(200, {"events": events, "count": len(events)})
+
+        elif self.path == "/api/audit/entries":
+            audit_data = get_audit_log_entries()
+            self._send_json(200, audit_data)
+
         else:
             self._send_not_found()
 
     def do_POST(self) -> None:
-        # Discard any optional body sent by client
         content_len = int(self.headers.get("Content-Length", 0))
+        body_data = {}
         if content_len > 0:
-            self.rfile.read(min(content_len, 4096))
+            raw_body = self.rfile.read(min(content_len, 65536))
+            try:
+                body_data = json.loads(raw_body.decode("utf-8"))
+            except Exception:
+                pass
 
         if self.path.startswith("/api/step/"):
             step_name = self.path[len("/api/step/"):]
@@ -316,9 +530,29 @@ class DemoHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(200, result)
             else:
                 self._send_not_found()
+
         elif self.path == "/api/messaging_demo":
             result = run_messaging_demo()
             self._send_json(200, result)
+
+        elif self.path == "/api/detector/run":
+            events_input = body_data.get("events")
+            alerts = run_detector_on_events(events_input)
+            self._send_json(200, {"alerts": alerts, "count": len(alerts)})
+
+        elif self.path == "/api/detector/inject":
+            attack_type = body_data.get("attack_type", "privilege_escalation")
+            res = inject_attack(attack_type)
+            self._send_json(200, res)
+
+        elif self.path == "/api/audit/verify":
+            res = verify_active_audit_log()
+            self._send_json(200, res)
+
+        elif self.path == "/api/audit/tamper_test":
+            res = run_tamper_test()
+            self._send_json(200, res)
+
         else:
             self._send_not_found()
 

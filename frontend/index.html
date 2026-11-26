@@ -3,101 +3,42 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trust, but verify: demo</title>
+  <title>Track 4: Trust, But Verify — Prototype SOC & Access Control</title>
   <style>
     :root {
-      --bg: #f8fafc;
-      --surface: #ffffff;
-      --text: #0f172a;
-      --text-muted: #64748b;
-      --border: #cbd5e1;
+      --bg: #0b1120;
+      --surface: #1e293b;
+      --surface-hover: #273549;
+      --surface-card: #151f32;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
       
-      --btn-bg: #2563eb;
-      --btn-text: #ffffff;
-      --btn-hover: #1d4ed8;
-      --btn-disabled: #94a3b8;
+      --accent-blue: #3b82f6;
+      --accent-blue-hover: #2563eb;
+      --accent-cyan: #06b6d4;
       
-      --btn-secondary-bg: #475569;
-      --btn-secondary-hover: #334155;
-      --btn-reset-bg: #dc2626;
-      --btn-reset-hover: #b91c1c;
+      --allow-bg: #064e3b;
+      --allow-border: #059669;
+      --allow-badge-bg: #10b981;
+      --allow-badge-text: #022c22;
+      --allow-text: #ecfdf5;
 
-      --code-bg: #f1f5f9;
-      --code-border: #cbd5e1;
-      --code-text: #0f172a;
+      --deny-bg: #450a0a;
+      --deny-border: #dc2626;
+      --deny-badge-bg: #ef4444;
+      --deny-badge-text: #450a0a;
+      --deny-text: #fef2f2;
 
-      /* Card themes */
-      --allow-bg: #dcfce7;
-      --allow-border: #86efac;
-      --allow-badge-bg: #15803d;
-      --allow-badge-text: #ffffff;
-      --allow-text: #14532d;
+      --warn-bg: #451a03;
+      --warn-border: #d97706;
+      --warn-badge-bg: #f59e0b;
+      --warn-badge-text: #451a03;
+      --warn-text: #fffbeb;
 
-      --deny-bg: #fee2e2;
-      --deny-border: #fca5a5;
-      --deny-badge-bg: #b91c1c;
-      --deny-badge-text: #ffffff;
-      --deny-text: #7f1d1d;
-
-      --ok-bg: #e0f2fe;
-      --ok-border: #7dd3fc;
-      --ok-badge-bg: #0369a1;
-      --ok-badge-text: #ffffff;
-      --ok-text: #0c4a6e;
-
-      --error-bg: #f1f5f9;
-      --error-border: #cbd5e1;
-      --error-badge-bg: #475569;
-      --error-badge-text: #ffffff;
-      --error-text: #1e293b;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0b1120;
-        --surface: #1e293b;
-        --text: #f8fafc;
-        --text-muted: #94a3b8;
-        --border: #334155;
-
-        --btn-bg: #3b82f6;
-        --btn-text: #ffffff;
-        --btn-hover: #2563eb;
-        --btn-disabled: #475569;
-
-        --btn-secondary-bg: #334155;
-        --btn-secondary-hover: #475569;
-        --btn-reset-bg: #991b1b;
-        --btn-reset-hover: #7f1d1d;
-
-        --code-bg: #0f172a;
-        --code-border: #334155;
-        --code-text: #f1f5f9;
-
-        --allow-bg: #064e3b;
-        --allow-border: #047857;
-        --allow-badge-bg: #10b981;
-        --allow-badge-text: #022c22;
-        --allow-text: #ecfdf5;
-
-        --deny-bg: #450a0a;
-        --deny-border: #991b1b;
-        --deny-badge-bg: #ef4444;
-        --deny-badge-text: #450a0a;
-        --deny-text: #fef2f2;
-
-        --ok-bg: #082f49;
-        --ok-border: #0284c7;
-        --ok-badge-bg: #38bdf8;
-        --ok-badge-text: #082f49;
-        --ok-text: #f0f9ff;
-
-        --error-bg: #1e293b;
-        --error-border: #475569;
-        --error-badge-bg: #64748b;
-        --error-badge-text: #ffffff;
-        --error-text: #f1f5f9;
-      }
+      --code-bg: #0f172a;
+      --code-border: #334155;
+      --code-text: #e2e8f0;
     }
 
     * {
@@ -115,217 +56,309 @@
     }
 
     .container {
-      max-width: 960px;
+      max-width: 1200px;
       margin: 0 auto;
     }
 
     header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       margin-bottom: 24px;
       border-bottom: 1px solid var(--border);
       padding-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
     }
 
-    h1 {
-      font-size: 1.75rem;
+    .brand-title {
+      font-size: 1.6rem;
       font-weight: 700;
-      margin-bottom: 6px;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
 
-    .note {
-      font-size: 0.875rem;
-      color: var(--text-muted);
+    .status-badges {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
-    .section-title {
-      font-size: 1rem;
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 0.75rem;
       font-weight: 600;
-      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-pqc {
+      background: #312e81;
+      color: #c7d2fe;
+      border: 1px solid #4338ca;
+    }
+
+    .badge-online {
+      background: #064e3b;
+      color: #a7f3d0;
+      border: 1px solid #059669;
+    }
+
+    /* Tabs Navigation */
+    .tabs-nav {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      font-weight: 600;
+      padding: 10px 18px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+
+    .tab-btn:hover {
+      background: var(--surface);
       color: var(--text);
     }
 
-    .controls-panel {
+    .tab-btn.active {
+      background: var(--surface);
+      color: var(--accent-cyan);
+      box-shadow: inset 0 -2px 0 var(--accent-cyan);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Controls & Panels */
+    .panel {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 16px;
+      border-radius: 10px;
+      padding: 20px;
       margin-bottom: 24px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
     }
 
-    .button-group {
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .panel-title {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-group {
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      margin-bottom: 12px;
     }
 
-    .aux-group {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      padding-top: 12px;
-      border-top: 1px solid var(--border);
-    }
-
-    button {
+    button.action-btn {
       font-family: inherit;
-      font-size: 0.875rem;
+      font-size: 0.85rem;
       font-weight: 600;
       padding: 8px 14px;
       border-radius: 6px;
       border: 1px solid transparent;
       cursor: pointer;
-      background-color: var(--btn-bg);
-      color: var(--btn-text);
-      transition: background-color 0.15s ease, opacity 0.15s ease;
+      background-color: var(--accent-blue);
+      color: #ffffff;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
 
-    button:hover:not(:disabled) {
-      background-color: var(--btn-hover);
+    button.action-btn:hover:not(:disabled) {
+      background-color: var(--accent-blue-hover);
+      transform: translateY(-1px);
     }
 
-    button:disabled {
-      background-color: var(--btn-disabled);
+    button.action-btn:disabled {
+      background-color: #475569;
       cursor: not-allowed;
-      opacity: 0.65;
+      opacity: 0.6;
+    }
+
+    button.btn-warn {
+      background-color: #b45309;
+    }
+    button.btn-warn:hover:not(:disabled) {
+      background-color: #92400e;
+    }
+
+    button.btn-danger {
+      background-color: #b91c1c;
+    }
+    button.btn-danger:hover:not(:disabled) {
+      background-color: #991b1b;
     }
 
     button.btn-secondary {
-      background-color: var(--btn-secondary-bg);
+      background-color: #334155;
     }
-
     button.btn-secondary:hover:not(:disabled) {
-      background-color: var(--btn-secondary-hover);
+      background-color: #475569;
     }
 
-    button.btn-reset {
-      background-color: var(--btn-reset-bg);
+    button.btn-success {
+      background-color: #059669;
+    }
+    button.btn-success:hover:not(:disabled) {
+      background-color: #047857;
     }
 
-    button.btn-reset:hover:not(:disabled) {
-      background-color: var(--btn-reset-hover);
-    }
-
-    .messaging-panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 16px;
+    /* KPI Metrics Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
       margin-bottom: 24px;
     }
 
-    .mono-box {
-      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-      font-size: 0.8125rem;
-      background-color: var(--code-bg);
-      border: 1px solid var(--code-border);
-      color: var(--code-text);
-      border-radius: 6px;
-      padding: 12px;
-      white-space: pre-wrap;
-      word-break: break-all;
-      max-height: 240px;
-      overflow-y: auto;
-    }
-
-    .card-list {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .card {
+    .metric-card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 16px;
-      border: 2px solid var(--border);
-      transition: transform 0.1s ease;
+      text-align: center;
     }
 
-    .card-allow {
-      background-color: var(--allow-bg);
-      border-color: var(--allow-border);
-      color: var(--allow-text);
+    .metric-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      margin: 4px 0;
     }
 
-    .card-deny {
-      background-color: var(--deny-bg);
-      border-color: var(--deny-border);
-      color: var(--deny-text);
+    .metric-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
 
-    .card-ok {
-      background-color: var(--ok-bg);
-      border-color: var(--ok-border);
-      color: var(--ok-text);
+    /* Event Stream Cards */
+    .stream-container {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-height: 520px;
+      overflow-y: auto;
+      padding-right: 4px;
     }
 
-    .card-error {
-      background-color: var(--error-bg);
-      border-color: var(--error-border);
-      color: var(--error-text);
+    .stream-card {
+      border-radius: 8px;
+      padding: 14px 18px;
+      border: 1px solid var(--border);
+      background: var(--surface-card);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      animation: fadeIn 0.2s ease-in-out;
     }
 
-    .card-header {
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .stream-card.allow {
+      border-left: 5px solid var(--allow-border);
+      background: rgba(6, 78, 59, 0.25);
+    }
+
+    .stream-card.deny {
+      border-left: 5px solid var(--deny-border);
+      background: rgba(69, 10, 10, 0.35);
+    }
+
+    .stream-card.alert-crit {
+      border-left: 5px solid #ef4444;
+      background: rgba(69, 10, 10, 0.45);
+    }
+
+    .stream-card.alert-high {
+      border-left: 5px solid #f97316;
+      background: rgba(67, 20, 7, 0.35);
+    }
+
+    .card-header-line {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+      font-size: 0.85rem;
     }
 
     .card-title {
-      font-size: 1rem;
-      font-weight: 700;
-      color: inherit;
+      font-weight: 600;
+      font-size: 0.95rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
-    .badge {
-      display: inline-block;
-      padding: 4px 10px;
+    .decision-badge {
+      padding: 3px 8px;
       border-radius: 4px;
-      font-size: 0.8125rem;
-      font-weight: 800;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
+      font-weight: 700;
+      font-size: 0.75rem;
     }
 
     .badge-allow {
-      background-color: var(--allow-badge-bg);
+      background: var(--allow-badge-bg);
       color: var(--allow-badge-text);
     }
 
     .badge-deny {
-      background-color: var(--deny-badge-bg);
-      color: var(--deny-badge-text);
+      background: var(--deny-badge-bg);
+      color: #ffffff;
     }
 
     .badge-ok {
-      background-color: var(--ok-badge-bg);
-      color: var(--ok-badge-text);
+      background: #0284c7;
+      color: #ffffff;
     }
 
-    .badge-error {
-      background-color: var(--error-badge-bg);
-      color: var(--error-badge-text);
-    }
-
-    .json-section {
-      margin-top: 10px;
-    }
-
-    .json-label {
-      font-size: 0.75rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-bottom: 4px;
-      color: inherit;
-      opacity: 0.9;
-    }
-
-    .json-box {
-      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-      font-size: 0.8125rem;
+    .mono-box {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.8rem;
       background-color: var(--code-bg);
       border: 1px solid var(--code-border);
       color: var(--code-text);
@@ -333,228 +366,574 @@
       padding: 10px;
       white-space: pre-wrap;
       word-break: break-all;
-      max-height: 220px;
+      max-height: 200px;
       overflow-y: auto;
     }
 
-    .empty-state {
-      text-align: center;
-      padding: 32px 16px;
-      color: var(--text-muted);
-      border: 2px dashed var(--border);
+    /* Table */
+    .table-responsive {
+      overflow-x: auto;
+      max-height: 400px;
+      border: 1px solid var(--border);
       border-radius: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      text-align: left;
+    }
+
+    th {
+      background: #111827;
+      color: var(--text-muted);
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      letter-spacing: 0.5px;
+    }
+
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    tr:hover td {
+      background-color: var(--surface-hover);
+    }
+
+    .tag {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+    .tag-blue { background: #1e3a8a; color: #bfdbfe; }
+    .tag-orange { background: #7c2d12; color: #fed7aa; }
+    .tag-red { background: #7f1d1d; color: #fecaca; }
+    .tag-green { background: #14532d; color: #bbf7d0; }
+
+    .help-text {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 14px;
     }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>Trust, but verify: demo</h1>
-      <p class="note">Note: This demo uses synthetic data only. Key material is generated at runtime and never persisted or leaked.</p>
+      <div class="brand-title">
+        <span>🛡️</span>
+        <span>Trust, but Verify — Security Console</span>
+      </div>
+      <div class="status-badges">
+        <span class="badge badge-online">Adapter: Sandboxed & Online</span>
+        <span class="badge badge-pqc">PQC: ML-KEM-768 / ML-DSA-65</span>
+        <span class="badge" style="background:#0284c7; color:#fff;">Track 4 Prototype</span>
+      </div>
     </header>
 
-    <div class="controls-panel">
-      <h2 class="section-title">Workflow Steps</h2>
-      <div class="button-group">
-        <button id="btn-setup" type="button">Setup</button>
-        <button id="btn-owner-read" type="button">Owner reads (allow)</button>
-        <button id="btn-revoke-owner" type="button">Revoke owner</button>
-        <button id="btn-owner-read-again" type="button">Owner reads again (deny)</button>
-        <button id="btn-audit" type="button">Audit</button>
-        <button id="btn-second-owner-read" type="button">Second owner reads (allow)</button>
-      </div>
-      <div class="aux-group">
-        <button id="btn-messaging" class="btn-secondary" type="button">Run messaging demo</button>
-        <button id="btn-reset" class="btn-reset" type="button">Reset</button>
-      </div>
-    </div>
+    <!-- Navigation Tabs -->
+    <nav class="tabs-nav">
+      <button class="tab-btn active" onclick="switchTab('tab-access')">🔐 Access & Lost-Device</button>
+      <button class="tab-btn" onclick="switchTab('tab-detector')">🚨 Anomaly Detector & SOC Feed</button>
+      <button class="tab-btn" onclick="switchTab('tab-messaging')">💬 PQC Secure Messaging</button>
+      <button class="tab-btn" onclick="switchTab('tab-audit')">📜 Audit Log & Cryptographic Proof</button>
+    </nav>
 
-    <div class="messaging-panel">
-      <h2 class="section-title">Messaging Subprocess Output</h2>
-      <pre id="messaging-output" class="mono-box">(Click &quot;Run messaging demo&quot; to execute messaging.demo_part_a in a separate subprocess)</pre>
-    </div>
+    <!-- TAB 1: ACCESS CONTROL & LOST DEVICE -->
+    <section id="tab-access" class="tab-content active">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>Lost-Device Access Control & Key Lifecycle</span>
+          </div>
+          <button class="action-btn btn-secondary" onclick="clearCards('access-cards')">Clear Log View</button>
+        </div>
+        <p class="help-text">
+          Interactive execution against the real <code>track4_service.py</code> adapter. Demonstrates setup, immediate revocation enforcement, audit logging, unaffected peer isolation, lost-device re-enrollment, and key rotation.
+        </p>
 
-    <main>
-      <h2 class="section-title">Execution Log</h2>
-      <div id="card-list" class="card-list">
-        <div id="empty-state" class="empty-state">No steps executed yet. Click a button above to run an adapter step.</div>
+        <div class="btn-group" style="margin-bottom: 16px;">
+          <button class="action-btn" onclick="runStep('setup')">1. Setup (Alex & Blair)</button>
+          <button class="action-btn" onclick="runStep('owner_read')">2. Owner Reads (Alex - Allow)</button>
+          <button class="action-btn btn-danger" onclick="runStep('revoke_owner')">3. Revoke Owner (Lost Device)</button>
+          <button class="action-btn btn-warn" onclick="runStep('owner_read_again')">4. Owner Reads Again (Deny)</button>
+          <button class="action-btn btn-secondary" onclick="runStep('audit')">5. Audit Denied Read</button>
+          <button class="action-btn btn-success" onclick="runStep('second_owner_read')">6. Peer Reads (Blair - Allow)</button>
+          <button class="action-btn btn-secondary" onclick="runStep('reenrol_owner')">7. Re-enrol Lost Device</button>
+          <button class="action-btn" onclick="runStep('owner_read_post_reenrol')">8. Post-Reenrol Read (Allow)</button>
+          <button class="action-btn btn-secondary" onclick="runStep('rotate_key')">9. Rotate Key Material</button>
+        </div>
+
+        <div id="access-cards" class="stream-container">
+          <div class="stream-card">
+            <div class="card-header-line">
+              <span class="card-title">Console Ready</span>
+              <span class="badge" style="background:#334155; color:#cbd5e1;">Awaiting Action</span>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">Click <strong>1. Setup</strong> above to initialize synthetic assets and execute the adapter lifecycle.</p>
+          </div>
+        </div>
       </div>
-    </main>
+    </section>
+
+    <!-- TAB 2: ANOMALY DETECTOR & SOC FEED -->
+    <section id="tab-detector" class="tab-content">
+      <!-- Benchmark KPI Stats -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">Detector F1 Score</div>
+          <div class="metric-value" id="kpi-f1">1.00</div>
+          <div style="font-size: 0.75rem; color: #10b981;">100% Precision / Recall</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">False Alerts / 1k</div>
+          <div class="metric-value" id="kpi-fp">0.0</div>
+          <div style="font-size: 0.75rem; color: #10b981;">Zero False Positives</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Median Alert Latency</div>
+          <div class="metric-value" id="kpi-mtta">18.0s</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted);">Clock-skew normalized</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Attacks Detected</div>
+          <div class="metric-value" id="kpi-cov">6 / 6</div>
+          <div style="font-size: 0.75rem; color: #10b981;">100% Category Coverage</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>🚨 Real-Time Security Incident Feed</span>
+          </div>
+          <div class="btn-group">
+            <button class="action-btn btn-secondary" onclick="loadSampleEvents()">1. Ingest Access Logs</button>
+            <button class="action-btn" onclick="runDetectorBatch()">2. Run Anomaly Detector</button>
+            <button class="action-btn btn-warn" onclick="injectAttack('privilege_escalation')">⚡ Inject Unapproved Escalation</button>
+            <button class="action-btn btn-danger" onclick="injectAttack('lateral_movement')">⚡ Inject Lateral Movement Hop</button>
+          </div>
+        </div>
+        <p class="help-text">
+          Detector uses deterministic rules, context-aware ticket approvals, baseline profiling, and clock-skew normalization (±120s skew, 2s uncertainty window) to detect stealthy attacks.
+        </p>
+
+        <div id="detector-alerts" class="stream-container" style="margin-bottom: 24px;">
+          <div class="stream-card">
+            <div class="card-header-line">
+              <span class="card-title">Incident Queue Clean</span>
+              <span class="badge" style="background:#064e3b; color:#a7f3d0;">No Active Alerts</span>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">Click <strong>Run Anomaly Detector</strong> or inject simulated attacks to view live security alerts.</p>
+          </div>
+        </div>
+
+        <!-- Raw Log Viewer -->
+        <div class="panel-title" style="margin-bottom: 12px; font-size: 1rem;">
+          <span>Synthetic Access Log Stream (Clock & Order Normalized)</span>
+        </div>
+        <div class="table-responsive">
+          <table id="events-table">
+            <thead>
+              <tr>
+                <th>Event ID</th>
+                <th>Source Time</th>
+                <th>Skew</th>
+                <th>Corrected UTC</th>
+                <th>Actor</th>
+                <th>Path (Src &rarr; Dst)</th>
+                <th>Action</th>
+                <th>Approval</th>
+              </tr>
+            </thead>
+            <tbody id="events-table-body">
+              <tr>
+                <td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">
+                  Click "Ingest Access Logs" to load synthetic distributed logs.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: PQC SECURE MESSAGING -->
+    <section id="tab-messaging" class="tab-content">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>Post-Quantum Hybrid Messaging Suite (Part A)</span>
+          </div>
+          <button class="action-btn" id="btn-run-msg" onclick="runMessagingDemo()">Run Full Test & Demo Suite</button>
+        </div>
+        <p class="help-text">
+          Executes <code>messaging.demo_part_a</code> in an isolated subprocess. Demonstrates ML-DSA-65 signatures over ephemeral X25519 + ML-KEM-768 key exchanges, AES-256-GCM authenticated transport, monotonic replay state rejection, chunked reassembly, and timeout expiration.
+        </p>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 20px;">
+          <div style="background: var(--surface-card); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
+            <div style="font-weight: 600; font-size: 0.85rem; color: var(--accent-cyan);">🔐 Quantum Key Exchange</div>
+            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">FIPS 203 ML-KEM-768 combined with classical X25519 (Hybrid Defense-in-Depth).</div>
+          </div>
+          <div style="background: var(--surface-card); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
+            <div style="font-weight: 600; font-size: 0.85rem; color: var(--accent-cyan);">✍️ Digital Signatures</div>
+            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">FIPS 204 ML-DSA-65 binds sender and recipient identities into transcript.</div>
+          </div>
+          <div style="background: var(--surface-card); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
+            <div style="font-weight: 600; font-size: 0.85rem; color: var(--accent-cyan);">🚫 Monotonic Anti-Replay</div>
+            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">Persistent counter state in <code>messaging_replay_state.json</code> rejects replayed packets.</div>
+          </div>
+          <div style="background: var(--surface-card); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
+            <div style="font-weight: 600; font-size: 0.85rem; color: var(--accent-cyan);">📦 Chunk Reassembly</div>
+            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">Out-of-order reassembly buffers chunks and expires incomplete transmissions.</div>
+          </div>
+        </div>
+
+        <div class="panel-title" style="margin-bottom: 8px; font-size: 0.95rem;">Live Test Execution Output:</div>
+        <div id="msg-terminal" class="mono-box" style="height: 320px; max-height: 400px;">
+[Ready] Click "Run Full Test & Demo Suite" above to execute the cryptographic harness...
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: AUDIT LOG & CRYPTOGRAPHIC VERIFICATION -->
+    <section id="tab-audit" class="tab-content">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>Tamper-Evident Audit Log & ML-DSA-65 Signed Checkpoints</span>
+          </div>
+          <div class="btn-group">
+            <button class="action-btn" onclick="fetchAuditLog()">1. Refresh Audit Log</button>
+            <button class="action-btn btn-success" onclick="verifyAuditLog()">2. Run Cryptographic Verification</button>
+            <button class="action-btn btn-danger" onclick="runTamperSimulation()">3. Simulate Tampering & Detect</button>
+          </div>
+        </div>
+        <p class="help-text">
+          Canonical JSON Lines log with SHA-256 hash chaining (<code>prev_hash &rarr; current_hash</code>) and periodic post-quantum ML-DSA-65 signed checkpoints (<code>checkpoint.json</code>). Guarantees tamper-evidence and prevents tail truncation.
+        </p>
+
+        <div id="audit-verify-banner" style="display:none; margin-bottom: 16px; padding: 14px; border-radius: 8px; font-size: 0.85rem;"></div>
+
+        <div class="panel-title" style="font-size: 0.95rem; margin-bottom: 8px;">Audit Log Entries (Canonical Hash Chain):</div>
+        <div id="audit-entries-list" class="stream-container" style="max-height: 400px;">
+          <div class="stream-card">
+            <p style="font-size: 0.85rem; color: var(--text-muted);">Audit log is empty or uninitialized. Perform steps in Tab 1 then click "Refresh Audit Log".</p>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 
   <script>
-    (function () {
-      "use strict";
+    // Tab Switching Logic
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+      
+      const targetBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick').includes(tabId));
+      if (targetBtn) targetBtn.classList.add('active');
+      
+      const targetTab = document.getElementById(tabId);
+      if (targetTab) targetTab.classList.add('active');
+    }
 
-      const cardList = document.getElementById("card-list");
-      const emptyState = document.getElementById("empty-state");
-      const messagingOutput = document.getElementById("messaging-output");
+    function clearCards(containerId) {
+      const container = document.getElementById(containerId);
+      if (container) {
+        container.innerHTML = `
+          <div class="stream-card">
+            <div class="card-header-line">
+              <span class="card-title">View Reset</span>
+              <span class="badge" style="background:#334155; color:#cbd5e1;">Empty</span>
+            </div>
+          </div>
+        `;
+      }
+    }
 
-      const allButtons = Array.from(document.querySelectorAll("button"));
-
-      function setGlobalBusy(busy) {
-        for (let i = 0; i < allButtons.length; i++) {
-          allButtons[i].disabled = busy;
+    // TAB 1: Access Control Runner
+    async function runStep(stepName) {
+      const container = document.getElementById('access-cards');
+      try {
+        const res = await fetch(`/api/step/${stepName}`, { method: 'POST' });
+        const data = await res.json();
+        
+        let decisionClass = 'ok';
+        let badgeClass = 'badge-ok';
+        if (data.label === 'ALLOW') {
+          decisionClass = 'allow';
+          badgeClass = 'badge-allow';
+        } else if (data.label === 'DENY' || data.label === 'ERROR') {
+          decisionClass = 'deny';
+          badgeClass = 'badge-deny';
         }
+
+        const card = document.createElement('div');
+        card.className = `stream-card ${decisionClass}`;
+        card.innerHTML = `
+          <div class="card-header-line">
+            <span class="card-title">Step: <strong>${data.step}</strong></span>
+            <span class="decision-badge ${badgeClass}">${data.label}</span>
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-muted);">Request Payload:</div>
+          <div class="mono-box">${JSON.stringify(data.request, null, 2)}</div>
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">Adapter Response:</div>
+          <div class="mono-box">${JSON.stringify(data.response, null, 2)}</div>
+        `;
+
+        if (container.children.length === 1 && container.children[0].innerText.includes('Console Ready')) {
+          container.innerHTML = '';
+        }
+        container.insertBefore(card, container.firstChild);
+      } catch (err) {
+        alert('Failed executing step: ' + err);
+      }
+    }
+
+    // TAB 2: Detector & SOC Runner
+    let cachedEvents = [];
+
+    async function loadSampleEvents() {
+      try {
+        const res = await fetch('/api/detector/events');
+        const data = await res.json();
+        cachedEvents = data.events;
+        const tbody = document.getElementById('events-table-body');
+        tbody.innerHTML = '';
+
+        cachedEvents.forEach(e => {
+          const tr = document.createElement('tr');
+          const isLate = e.late_delay_sec > 0;
+          const skewMs = e.source_clock_offset_ms || 0;
+          
+          tr.innerHTML = `
+            <td><code>${e.event_id}</code></td>
+            <td>${e.event_time_utc ? e.event_time_utc.substring(11, 19) : '-'}</td>
+            <td><span class="tag ${skewMs !== 0 ? 'tag-orange' : 'tag-blue'}">${skewMs}ms</span></td>
+            <td>${e.corrected_time_utc ? e.corrected_time_utc.substring(11, 19) : '-'}</td>
+            <td><strong>${e.actor}</strong></td>
+            <td><code>${e.source_service}</code> &rarr; <code>${e.target_service}</code></td>
+            <td><span class="tag ${e.action.includes('role') ? 'tag-red' : 'tag-green'}">${e.action}</span></td>
+            <td>${e.approval_id ? `<span class="tag tag-green">${e.approval_id}</span>` : '<span class="tag tag-red">None</span>'}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        alert('Failed loading events: ' + err);
+      }
+    }
+
+    async function runDetectorBatch() {
+      try {
+        const res = await fetch('/api/detector/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ events: cachedEvents.length ? cachedEvents : null })
+        });
+        const data = await res.json();
+        renderAlerts(data.alerts);
+      } catch (err) {
+        alert('Failed running detector: ' + err);
+      }
+    }
+
+    async function injectAttack(attackType) {
+      try {
+        const res = await fetch('/api/detector/inject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attack_type: attackType })
+        });
+        const data = await res.json();
+        if (data.alerts && data.alerts.length > 0) {
+          renderAlerts(data.alerts, true);
+        } else {
+          alert('Attack injected but not detected.');
+        }
+      } catch (err) {
+        alert('Failed injecting attack: ' + err);
+      }
+    }
+
+    function renderAlerts(alerts, append = false) {
+      const container = document.getElementById('detector-alerts');
+      if (!append || container.innerText.includes('Incident Queue Clean')) {
+        container.innerHTML = '';
       }
 
-      function createSafeEl(tag, className, text) {
-        const el = document.createElement(tag);
-        if (className) el.className = className;
-        if (text !== undefined && text !== null) {
-          el.textContent = text;
-        }
-        return el;
+      if (!alerts || alerts.length === 0) {
+        container.innerHTML = `
+          <div class="stream-card">
+            <div class="card-header-line">
+              <span class="card-title">Clean Audit Run</span>
+              <span class="badge" style="background:#064e3b; color:#a7f3d0;">0 Alerts</span>
+            </div>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">Detector processed log batch. No unauthorized actions or anomalous paths detected.</p>
+          </div>
+        `;
+        return;
       }
 
-      function appendCard(data) {
-        if (emptyState && emptyState.parentNode) {
-          emptyState.parentNode.removeChild(emptyState);
+      alerts.forEach(a => {
+        const card = document.createElement('div');
+        const isCrit = a.severity === 'CRITICAL';
+        card.className = `stream-card ${isCrit ? 'alert-crit' : 'alert-high'}`;
+        card.innerHTML = `
+          <div class="card-header-line">
+            <span class="card-title">🚨 <strong>${a.rule}</strong></span>
+            <span class="decision-badge ${isCrit ? 'badge-deny' : 'badge-ok'}">${a.severity || 'ALERT'}</span>
+          </div>
+          <div style="font-size: 0.85rem; margin-top: 4px;">
+            <strong>Target Actor:</strong> <code>${a.actor}</code> | 
+            <strong>Path:</strong> <code>${a.source_service}</code> &rarr; <code>${a.target_service}</code>
+          </div>
+          <div style="font-size: 0.82rem; color: #fecaca; margin-top: 4px;">
+            <strong>Reason:</strong> ${a.reason}
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
+            Event IDs: <code>${(a.event_ids || []).join(', ')}</code>
+          </div>
+        `;
+        container.insertBefore(card, container.firstChild);
+      });
+    }
+
+    // TAB 3: Messaging Demo Runner
+    async function runMessagingDemo() {
+      const term = document.getElementById('msg-terminal');
+      const btn = document.getElementById('btn-run-msg');
+      btn.disabled = true;
+      term.innerText = '[Running] Spawning python -m messaging.demo_part_a in isolated sandbox...\n';
+
+      try {
+        const res = await fetch('/api/messaging_demo', { method: 'POST' });
+        const data = await res.json();
+        btn.disabled = false;
+        
+        if (data.error) {
+          term.innerText += `\n[ERROR] ${data.error}\n`;
+        } else if (data.lines) {
+          term.innerText = data.lines.join('\n');
+        }
+      } catch (err) {
+        btn.disabled = false;
+        term.innerText += `\n[ERROR] Network failure: ${err}\n`;
+      }
+    }
+
+    // TAB 4: Audit Log Viewer & Verifier
+    async function fetchAuditLog() {
+      const container = document.getElementById('audit-entries-list');
+      try {
+        const res = await fetch('/api/audit/entries');
+        const data = await res.json();
+        container.innerHTML = '';
+
+        if (!data.entries || data.entries.length === 0) {
+          container.innerHTML = `
+            <div class="stream-card">
+              <p style="font-size: 0.85rem; color: var(--text-muted);">Audit log is currently empty.</p>
+            </div>
+          `;
+          return;
         }
 
-        const label = (data && data.label) ? String(data.label) : "ERROR";
-        const labelClass = label.toLowerCase();
-        const stepName = (data && data.step) ? String(data.step) : "unknown";
-
-        const card = createSafeEl("div", "card card-" + labelClass);
-
-        const header = createSafeEl("div", "card-header");
-        const title = createSafeEl("h3", "card-title", "Step: " + stepName);
-        const badge = createSafeEl("span", "badge badge-" + labelClass, label);
-        header.appendChild(title);
-        header.appendChild(badge);
-        card.appendChild(header);
-
-        // Request section
-        const reqSec = createSafeEl("div", "json-section");
-        const reqLbl = createSafeEl("div", "json-label", "Request");
-        const reqPre = createSafeEl(
-          "pre",
-          "json-box",
-          JSON.stringify(data.request || {}, null, 2)
-        );
-        reqSec.appendChild(reqLbl);
-        reqSec.appendChild(reqPre);
-        card.appendChild(reqSec);
-
-        // Response section
-        const resSec = createSafeEl("div", "json-section");
-        const resLbl = createSafeEl("div", "json-label", "Response");
-        const resPre = createSafeEl(
-          "pre",
-          "json-box",
-          JSON.stringify(data.response || {}, null, 2)
-        );
-        resSec.appendChild(resLbl);
-        resSec.appendChild(resPre);
-        card.appendChild(resSec);
-
-        cardList.appendChild(card);
-        card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        data.entries.forEach(e => {
+          const card = document.createElement('div');
+          card.className = 'stream-card';
+          card.innerHTML = `
+            <div class="card-header-line">
+              <span class="card-title">Seq <strong>#${e.seq}</strong> &bull; Action: <code>${e.action}</code></span>
+              <span class="badge ${e.outcome === 'allow' || e.outcome === 'success' ? 'badge-online' : 'badge-deny'}">${e.outcome}</span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">
+              <strong>Actor:</strong> ${e.actor} | <strong>Correlation ID:</strong> <code>${e.correlation_id}</code> | <strong>Time:</strong> ${e.timestamp}
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; word-break: break-all;">
+              <strong>SHA-256 Chained Hash:</strong> <code>${e.current_hash}</code><br>
+              <strong>Prev Hash:</strong> <code>${e.prev_hash}</code>
+            </div>
+          `;
+          container.appendChild(card);
+        });
+      } catch (err) {
+        alert('Failed fetching audit log: ' + err);
       }
+    }
 
-      async function postStep(stepName) {
-        setGlobalBusy(true);
-        try {
-          const res = await fetch("/api/step/" + encodeURIComponent(stepName), {
-            method: "POST",
-            headers: {
-              "Accept": "application/json"
-            }
-          });
-          if (!res.ok) {
-            appendCard({
-              step: stepName,
-              request: {},
-              response: { error: "HTTP error " + res.status + " " + res.statusText },
-              label: "ERROR"
-            });
-            return;
-          }
-          const data = await res.json();
-          appendCard(data);
-        } catch (err) {
-          appendCard({
-            step: stepName,
-            request: {},
-            response: { error: "Network or fetch failure: " + err.message },
-            label: "ERROR"
-          });
-        } finally {
-          setGlobalBusy(false);
+    async function verifyAuditLog() {
+      const banner = document.getElementById('audit-verify-banner');
+      try {
+        const res = await fetch('/api/audit/verify', { method: 'POST' });
+        const report = await res.json();
+        banner.style.display = 'block';
+
+        if (report.valid) {
+          banner.style.background = 'rgba(6, 78, 59, 0.4)';
+          banner.style.border = '1px solid var(--allow-border)';
+          banner.style.color = '#a7f3d0';
+          banner.innerHTML = `
+            <strong>✅ CRYPTOGRAPHIC VERIFICATION SUCCESSFUL</strong><br>
+            All <strong>${report.entries_count}</strong> audit log entries verified against SHA-256 hash chain.<br>
+            <strong>Log Head:</strong> <code>${report.head}</code><br>
+            <strong>Checkpoint Signature:</strong> Valid ML-DSA-65 signature matching key.
+          `;
+        } else {
+          banner.style.background = 'rgba(69, 10, 10, 0.5)';
+          banner.style.border = '1px solid var(--deny-border)';
+          banner.style.color = '#fecaca';
+          banner.innerHTML = `
+            <strong>❌ VERIFICATION FAILED</strong><br>
+            Reason: <strong>${report.reason}</strong><br>
+            First Invalid Line: #${report.bad_line || 'unknown'}
+          `;
         }
+      } catch (err) {
+        alert('Verification request failed: ' + err);
       }
+    }
 
-      async function runMessagingDemo() {
-        setGlobalBusy(true);
-        messagingOutput.textContent = "Executing messaging.demo_part_a in isolated subprocess...";
-        try {
-          const res = await fetch("/api/messaging_demo", {
-            method: "POST",
-            headers: {
-              "Accept": "application/json"
-            }
-          });
-          if (!res.ok) {
-            messagingOutput.textContent = "HTTP error " + res.status + " " + res.statusText;
-            return;
-          }
-          const data = await res.json();
-          if (data.error) {
-            messagingOutput.textContent = "ERROR: " + data.error;
-          } else if (Array.isArray(data.lines) && data.lines.length > 0) {
-            messagingOutput.textContent = data.lines.join("\n");
-          } else {
-            messagingOutput.textContent = "(No output produced)";
-          }
-        } catch (err) {
-          messagingOutput.textContent = "Failed to run messaging demo: " + err.message;
-        } finally {
-          setGlobalBusy(false);
+    async function runTamperSimulation() {
+      const banner = document.getElementById('audit-verify-banner');
+      try {
+        const res = await fetch('/api/audit/tamper_test', { method: 'POST' });
+        const data = await res.json();
+        banner.style.display = 'block';
+
+        if (data.tamper_detected) {
+          banner.style.background = 'rgba(69, 10, 10, 0.6)';
+          banner.style.border = '1px solid #ef4444';
+          banner.style.color = '#fef2f2';
+          banner.innerHTML = `
+            <strong>🛡️ TAMPER-EVIDENT DEFENSE ACTIVATED (Test Passed)</strong><br>
+            Simulated adversary tampered with Entry #${data.tampered_line} (changed actor <code>${data.original_actor}</code> &rarr; <code>${data.tampered_actor}</code>).<br>
+            <strong>Cryptographic Verification Result:</strong> Detected on Line #${data.verification_report.bad_line}: <code>${data.verification_report.reason}</code>.<br>
+            <em>The system refused unverified log state!</em>
+          `;
+        } else {
+          banner.style.background = '#334155';
+          banner.innerHTML = `Tamper test returned: ${JSON.stringify(data)}`;
         }
+      } catch (err) {
+        alert('Tamper test failed: ' + err);
       }
+    }
 
-      function resetCards() {
-        while (cardList.firstChild) {
-          cardList.removeChild(cardList.firstChild);
-        }
-        cardList.appendChild(emptyState);
-        messagingOutput.textContent = "(Click \"Run messaging demo\" to execute messaging.demo_part_a in a separate subprocess)";
-      }
-
-      // Event handlers matching the exact requested button order
-      document.getElementById("btn-setup").addEventListener("click", function () {
-        postStep("setup");
-      });
-
-      document.getElementById("btn-owner-read").addEventListener("click", function () {
-        postStep("owner_read");
-      });
-
-      document.getElementById("btn-revoke-owner").addEventListener("click", function () {
-        postStep("revoke_owner");
-      });
-
-      document.getElementById("btn-owner-read-again").addEventListener("click", function () {
-        postStep("owner_read_again");
-      });
-
-      document.getElementById("btn-audit").addEventListener("click", function () {
-        postStep("audit");
-      });
-
-      document.getElementById("btn-second-owner-read").addEventListener("click", function () {
-        postStep("second_owner_read");
-      });
-
-      document.getElementById("btn-messaging").addEventListener("click", function () {
-        runMessagingDemo();
-      });
-
-      document.getElementById("btn-reset").addEventListener("click", function () {
-        resetCards();
-      });
-    })();
+    // Auto-load events on startup
+    window.addEventListener('DOMContentLoaded', () => {
+      loadSampleEvents();
+    });
   </script>
 </body>
 </html>

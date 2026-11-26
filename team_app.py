@@ -14,7 +14,7 @@ try:
 except ImportError:
     _kem_protected_read = None
 
-KNOWN_OPS = {"setup", "read", "revoke", "audit", "protected_read"}
+KNOWN_OPS = {"setup", "read", "revoke", "audit", "protected_read", "reenrol", "rotate"}
 MAX_ID_LEN = 256
 
 
@@ -115,6 +115,55 @@ def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
 
         recovery.execute_revoke(actor, request_id=request_id)
         return {}
+
+    elif op == "reenrol":
+        actor = _validate_str_id(request.get("actor"), "actor")
+        new_device = _validate_str_id(request.get("new_device", "dev-re-enrolled"), "new_device")
+        request_id = request.get("request_id", "")
+        corr_id = _validate_str_id(request_id, "request_id") if request_id else f"reenrol-{actor}"
+
+        def _reenrol_fn(st: Dict[str, Any]) -> Dict[str, Any]:
+            revoked = [r for r in st.get("revoked", []) if r != actor]
+            disabled = [d for d in st.get("disabled", []) if d != actor]
+            st["revoked"] = revoked
+            st["disabled"] = disabled
+            devices = dict(st.get("devices", {}))
+            devices[actor] = new_device
+            st["devices"] = devices
+            return st
+
+        recovery.transactional_update(
+            kind="reenrol",
+            payload={"actor": actor, "new_device": new_device},
+            update_fn=_reenrol_fn,
+            audit_actor=actor,
+            audit_action="reenrol",
+            correlation_id=corr_id,
+        )
+        return {"ready": True, "actor": actor, "reenrolled": True}
+
+    elif op == "rotate":
+        new_key = request.get("key_material")
+        if not isinstance(new_key, str) or not new_key:
+            import secrets
+            new_key = secrets.token_hex(16)
+        request_id = request.get("request_id", "")
+        corr_id = _validate_str_id(request_id, "request_id") if request_id else "rot-key"
+
+        def _rotate_fn(st: Dict[str, Any]) -> Dict[str, Any]:
+            st["key_version"] = st.get("key_version", 1) + 1
+            st["key_material"] = new_key
+            return st
+
+        new_st = recovery.transactional_update(
+            kind="rotate",
+            payload={"key_version": current_state.get("key_version", 1) + 1},
+            update_fn=_rotate_fn,
+            audit_actor="system",
+            audit_action="key_rotation",
+            correlation_id=corr_id,
+        )
+        return {"ready": True, "key_version": new_st["key_version"]}
 
     elif op == "audit":
         request_id = _validate_str_id(request.get("request_id"), "request_id")

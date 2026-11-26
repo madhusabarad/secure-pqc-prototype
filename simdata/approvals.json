@@ -1,0 +1,42 @@
+[
+  {
+    "approval_id": "APR-001",
+    "actor": "user01",
+    "approved_action": "role_change",
+    "role_before": "user",
+    "role_after": "admin",
+    "status": "approved",
+    "approved_by": "sec_lead",
+    "expires_at": "2027-01-01T00:00:00Z"
+  },
+  {
+    "approval_id": "APR-002",
+    "actor": "user05",
+    "approved_action": "role_change",
+    "role_before": "user",
+    "role_after": "operator",
+    "status": "approved",
+    "approved_by": "sec_lead",
+    "expires_at": "2027-01-01T00:00:00Z"
+  },
+  {
+    "approval_id": "APR-003",
+    "actor": "user10",
+    "approved_action": "role_change",
+    "role_before": "user",
+    "role_after": "analyst",
+    "status": "approved",
+    "approved_by": "admin01",
+    "expires_at": "2027-01-01T00:00:00Z"
+  },
+  {
+    "approval_id": "APR-004",
+    "actor": "user15",
+    "approved_action": "role_change",
+    "role_before": "user",
+    "role_after": "database_admin",
+    "status": "approved",
+    "approved_by": "admin02",
+    "expires_at": "2027-01-01T00:00:00Z"
+  }
+]

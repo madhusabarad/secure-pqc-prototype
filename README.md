@@ -31,3 +31,35 @@ Active sessions, pending handshakes, identity keys, and revocation flags live on
 ## Credits
 
 Adapter starters and the validator come from the official Track 4 Toolkit (`ScalerOpenSourceLabs/Track-4-Toolkit`).
+
+## Frontend (optional demo)
+
+### Purpose
+The demo frontend provides an interactive local walkthrough of the "lost-device" access control story through the real adapter using synthetic data. It demonstrates immediate revocation enforcement, tamper-evident audit logging, and independent access for unrevoked users.
+
+### How to Run
+1. Start the local server:
+   ```bash
+   python frontend/server.py
+   ```
+2. Open your browser and navigate to:
+   ```
+   http://127.0.0.1:8000
+   ```
+
+### Button Actions
+- **Setup**: Initializes adapter state with two synthetic owners (`user-alex`, `user-blair`), two synthetic assets (`report-1`, `report-2`), and runtime key material generated with `secrets.token_hex(16)`. Returns `OK`.
+- **Owner reads (allow)**: `user-alex` requests `report-1`. Since `user-alex` is an active owner, the adapter permits reading the asset body. Returns `ALLOW`.
+- **Revoke owner**: Revokes `user-alex` to simulate a lost or compromised credential. Returns `OK`.
+- **Owner reads again (deny)**: `user-alex` requests `report-1` again. Revocation is immediately enforced by the adapter. Returns `DENY`.
+- **Audit**: Queries the adapter's tamper-evident audit log for the correlation ID of the revoked read attempt, proving that the denial was recorded in the signed hash-chained log. Returns `DENY`.
+- **Second owner reads (allow)**: `user-blair` requests `report-2`. Confirms that revoking `user-alex` does not disrupt access for other legitimate users. Returns `ALLOW`.
+- **Run messaging demo**: Runs `messaging.demo_part_a` in an isolated subprocess to verify post-quantum hybrid key exchange, authenticated transport, replay rejection, and chunk reassembly.
+- **Reset**: Clears all displayed cards client-side without altering server state.
+
+### Notes and Constraints
+- **Standard Library Only**: The server is built entirely with Python 3.12 standard library modules (`http.server`, `subprocess`, `json`, `secrets`, `tempfile`, `sys`, `os`, `pathlib`). No external packages, pip dependencies, or CDN resources are used. The frontend runs completely offline.
+- **Not Part of the Judged Adapter Path**: The demo frontend is strictly an optional visualization interface. The judged evaluation path (`track4_service.py`) remains completely independent and does not import or depend on anything in `frontend/`.
+- **Localhost Only**: Binds strictly to `127.0.0.1:8000`.
+- **Ephemeral State**: Creates a temporary state directory with `tempfile.mkdtemp()` at server start and deletes it on exit; it never writes inside the repository folder.
+

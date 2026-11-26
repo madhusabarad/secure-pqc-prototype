@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trust, but verify: demo</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #cbd5e1;
+      
+      --btn-bg: #2563eb;
+      --btn-text: #ffffff;
+      --btn-hover: #1d4ed8;
+      --btn-disabled: #94a3b8;
+      
+      --btn-secondary-bg: #475569;
+      --btn-secondary-hover: #334155;
+      --btn-reset-bg: #dc2626;
+      --btn-reset-hover: #b91c1c;
+
+      --code-bg: #f1f5f9;
+      --code-border: #cbd5e1;
+      --code-text: #0f172a;
+
+      /* Card themes */
+      --allow-bg: #dcfce7;
+      --allow-border: #86efac;
+      --allow-badge-bg: #15803d;
+      --allow-badge-text: #ffffff;
+      --allow-text: #14532d;
+
+      --deny-bg: #fee2e2;
+      --deny-border: #fca5a5;
+      --deny-badge-bg: #b91c1c;
+      --deny-badge-text: #ffffff;
+      --deny-text: #7f1d1d;
+
+      --ok-bg: #e0f2fe;
+      --ok-border: #7dd3fc;
+      --ok-badge-bg: #0369a1;
+      --ok-badge-text: #ffffff;
+      --ok-text: #0c4a6e;
+
+      --error-bg: #f1f5f9;
+      --error-border: #cbd5e1;
+      --error-badge-bg: #475569;
+      --error-badge-text: #ffffff;
+      --error-text: #1e293b;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b1120;
+        --surface: #1e293b;
+        --text: #f8fafc;
+        --text-muted: #94a3b8;
+        --border: #334155;
+
+        --btn-bg: #3b82f6;
+        --btn-text: #ffffff;
+        --btn-hover: #2563eb;
+        --btn-disabled: #475569;
+
+        --btn-secondary-bg: #334155;
+        --btn-secondary-hover: #475569;
+        --btn-reset-bg: #991b1b;
+        --btn-reset-hover: #7f1d1d;
+
+        --code-bg: #0f172a;
+        --code-border: #334155;
+        --code-text: #f1f5f9;
+
+        --allow-bg: #064e3b;
+        --allow-border: #047857;
+        --allow-badge-bg: #10b981;
+        --allow-badge-text: #022c22;
+        --allow-text: #ecfdf5;
+
+        --deny-bg: #450a0a;
+        --deny-border: #991b1b;
+        --deny-badge-bg: #ef4444;
+        --deny-badge-text: #450a0a;
+        --deny-text: #fef2f2;
+
+        --ok-bg: #082f49;
+        --ok-border: #0284c7;
+        --ok-badge-bg: #38bdf8;
+        --ok-badge-text: #082f49;
+        --ok-text: #f0f9ff;
+
+        --error-bg: #1e293b;
+        --error-border: #475569;
+        --error-badge-bg: #64748b;
+        --error-badge-text: #ffffff;
+        --error-text: #f1f5f9;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px;
+    }
+
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 16px;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .note {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+
+    .section-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+
+    .controls-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+
+    .button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .aux-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    button {
+      font-family: inherit;
+      font-size: 0.875rem;
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      background-color: var(--btn-bg);
+      color: var(--btn-text);
+      transition: background-color 0.15s ease, opacity 0.15s ease;
+    }
+
+    button:hover:not(:disabled) {
+      background-color: var(--btn-hover);
+    }
+
+    button:disabled {
+      background-color: var(--btn-disabled);
+      cursor: not-allowed;
+      opacity: 0.65;
+    }
+
+    button.btn-secondary {
+      background-color: var(--btn-secondary-bg);
+    }
+
+    button.btn-secondary:hover:not(:disabled) {
+      background-color: var(--btn-secondary-hover);
+    }
+
+    button.btn-reset {
+      background-color: var(--btn-reset-bg);
+    }
+
+    button.btn-reset:hover:not(:disabled) {
+      background-color: var(--btn-reset-hover);
+    }
+
+    .messaging-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+
+    .mono-box {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.8125rem;
+      background-color: var(--code-bg);
+      border: 1px solid var(--code-border);
+      color: var(--code-text);
+      border-radius: 6px;
+      padding: 12px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+
+    .card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card {
+      border-radius: 8px;
+      padding: 16px;
+      border: 2px solid var(--border);
+      transition: transform 0.1s ease;
+    }
+
+    .card-allow {
+      background-color: var(--allow-bg);
+      border-color: var(--allow-border);
+      color: var(--allow-text);
+    }
+
+    .card-deny {
+      background-color: var(--deny-bg);
+      border-color: var(--deny-border);
+      color: var(--deny-text);
+    }
+
+    .card-ok {
+      background-color: var(--ok-bg);
+      border-color: var(--ok-border);
+      color: var(--ok-text);
+    }
+
+    .card-error {
+      background-color: var(--error-bg);
+      border-color: var(--error-border);
+      color: var(--error-text);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: inherit;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 0.8125rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .badge-allow {
+      background-color: var(--allow-badge-bg);
+      color: var(--allow-badge-text);
+    }
+
+    .badge-deny {
+      background-color: var(--deny-badge-bg);
+      color: var(--deny-badge-text);
+    }
+
+    .badge-ok {
+      background-color: var(--ok-badge-bg);
+      color: var(--ok-badge-text);
+    }
+
+    .badge-error {
+      background-color: var(--error-badge-bg);
+      color: var(--error-badge-text);
+    }
+
+    .json-section {
+      margin-top: 10px;
+    }
+
+    .json-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+      color: inherit;
+      opacity: 0.9;
+    }
+
+    .json-box {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.8125rem;
+      background-color: var(--code-bg);
+      border: 1px solid var(--code-border);
+      color: var(--code-text);
+      border-radius: 6px;
+      padding: 10px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 32px 16px;
+      color: var(--text-muted);
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Trust, but verify: demo</h1>
+      <p class="note">Note: This demo uses synthetic data only. Key material is generated at runtime and never persisted or leaked.</p>
+    </header>
+
+    <div class="controls-panel">
+      <h2 class="section-title">Workflow Steps</h2>
+      <div class="button-group">
+        <button id="btn-setup" type="button">Setup</button>
+        <button id="btn-owner-read" type="button">Owner reads (allow)</button>
+        <button id="btn-revoke-owner" type="button">Revoke owner</button>
+        <button id="btn-owner-read-again" type="button">Owner reads again (deny)</button>
+        <button id="btn-audit" type="button">Audit</button>
+        <button id="btn-second-owner-read" type="button">Second owner reads (allow)</button>
+      </div>
+      <div class="aux-group">
+        <button id="btn-messaging" class="btn-secondary" type="button">Run messaging demo</button>
+        <button id="btn-reset" class="btn-reset" type="button">Reset</button>
+      </div>
+    </div>
+
+    <div class="messaging-panel">
+      <h2 class="section-title">Messaging Subprocess Output</h2>
+      <pre id="messaging-output" class="mono-box">(Click &quot;Run messaging demo&quot; to execute messaging.demo_part_a in a separate subprocess)</pre>
+    </div>
+
+    <main>
+      <h2 class="section-title">Execution Log</h2>
+      <div id="card-list" class="card-list">
+        <div id="empty-state" class="empty-state">No steps executed yet. Click a button above to run an adapter step.</div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      const cardList = document.getElementById("card-list");
+      const emptyState = document.getElementById("empty-state");
+      const messagingOutput = document.getElementById("messaging-output");
+
+      const allButtons = Array.from(document.querySelectorAll("button"));
+
+      function setGlobalBusy(busy) {
+        for (let i = 0; i < allButtons.length; i++) {
+          allButtons[i].disabled = busy;
+        }
+      }
+
+      function createSafeEl(tag, className, text) {
+        const el = document.createElement(tag);
+        if (className) el.className = className;
+        if (text !== undefined && text !== null) {
+          el.textContent = text;
+        }
+        return el;
+      }
+
+      function appendCard(data) {
+        if (emptyState && emptyState.parentNode) {
+          emptyState.parentNode.removeChild(emptyState);
+        }
+
+        const label = (data && data.label) ? String(data.label) : "ERROR";
+        const labelClass = label.toLowerCase();
+        const stepName = (data && data.step) ? String(data.step) : "unknown";
+
+        const card = createSafeEl("div", "card card-" + labelClass);
+
+        const header = createSafeEl("div", "card-header");
+        const title = createSafeEl("h3", "card-title", "Step: " + stepName);
+        const badge = createSafeEl("span", "badge badge-" + labelClass, label);
+        header.appendChild(title);
+        header.appendChild(badge);
+        card.appendChild(header);
+
+        // Request section
+        const reqSec = createSafeEl("div", "json-section");
+        const reqLbl = createSafeEl("div", "json-label", "Request");
+        const reqPre = createSafeEl(
+          "pre",
+          "json-box",
+          JSON.stringify(data.request || {}, null, 2)
+        );
+        reqSec.appendChild(reqLbl);
+        reqSec.appendChild(reqPre);
+        card.appendChild(reqSec);
+
+        // Response section
+        const resSec = createSafeEl("div", "json-section");
+        const resLbl = createSafeEl("div", "json-label", "Response");
+        const resPre = createSafeEl(
+          "pre",
+          "json-box",
+          JSON.stringify(data.response || {}, null, 2)
+        );
+        resSec.appendChild(resLbl);
+        resSec.appendChild(resPre);
+        card.appendChild(resSec);
+
+        cardList.appendChild(card);
+        card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
+      async function postStep(stepName) {
+        setGlobalBusy(true);
+        try {
+          const res = await fetch("/api/step/" + encodeURIComponent(stepName), {
+            method: "POST",
+            headers: {
+              "Accept": "application/json"
+            }
+          });
+          if (!res.ok) {
+            appendCard({
+              step: stepName,
+              request: {},
+              response: { error: "HTTP error " + res.status + " " + res.statusText },
+              label: "ERROR"
+            });
+            return;
+          }
+          const data = await res.json();
+          appendCard(data);
+        } catch (err) {
+          appendCard({
+            step: stepName,
+            request: {},
+            response: { error: "Network or fetch failure: " + err.message },
+            label: "ERROR"
+          });
+        } finally {
+          setGlobalBusy(false);
+        }
+      }
+
+      async function runMessagingDemo() {
+        setGlobalBusy(true);
+        messagingOutput.textContent = "Executing messaging.demo_part_a in isolated subprocess...";
+        try {
+          const res = await fetch("/api/messaging_demo", {
+            method: "POST",
+            headers: {
+              "Accept": "application/json"
+            }
+          });
+          if (!res.ok) {
+            messagingOutput.textContent = "HTTP error " + res.status + " " + res.statusText;
+            return;
+          }
+          const data = await res.json();
+          if (data.error) {
+            messagingOutput.textContent = "ERROR: " + data.error;
+          } else if (Array.isArray(data.lines) && data.lines.length > 0) {
+            messagingOutput.textContent = data.lines.join("\n");
+          } else {
+            messagingOutput.textContent = "(No output produced)";
+          }
+        } catch (err) {
+          messagingOutput.textContent = "Failed to run messaging demo: " + err.message;
+        } finally {
+          setGlobalBusy(false);
+        }
+      }
+
+      function resetCards() {
+        while (cardList.firstChild) {
+          cardList.removeChild(cardList.firstChild);
+        }
+        cardList.appendChild(emptyState);
+        messagingOutput.textContent = "(Click \"Run messaging demo\" to execute messaging.demo_part_a in a separate subprocess)";
+      }
+
+      // Event handlers matching the exact requested button order
+      document.getElementById("btn-setup").addEventListener("click", function () {
+        postStep("setup");
+      });
+
+      document.getElementById("btn-owner-read").addEventListener("click", function () {
+        postStep("owner_read");
+      });
+
+      document.getElementById("btn-revoke-owner").addEventListener("click", function () {
+        postStep("revoke_owner");
+      });
+
+      document.getElementById("btn-owner-read-again").addEventListener("click", function () {
+        postStep("owner_read_again");
+      });
+
+      document.getElementById("btn-audit").addEventListener("click", function () {
+        postStep("audit");
+      });
+
+      document.getElementById("btn-second-owner-read").addEventListener("click", function () {
+        postStep("second_owner_read");
+      });
+
+      document.getElementById("btn-messaging").addEventListener("click", function () {
+        runMessagingDemo();
+      });
+
+      document.getElementById("btn-reset").addEventListener("click", function () {
+        resetCards();
+      });
+    })();
+  </script>
+</body>
+</html>

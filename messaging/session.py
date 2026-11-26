@@ -1334,7 +1334,8 @@ def receive(
             )
             if last_result.status == STATUS_FAILED:
                 return last_result
-        assert last_result is not None
+        if last_result is None:
+            return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, log_event=log_event)
         return last_result
 
     return _receive_single_packet(

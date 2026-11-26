@@ -40,11 +40,17 @@ def test_round_trip_and_bidirectional_separation() -> None:
 
     pkt_ab = msg_session.send(sid, "alice", "bob", b"hello bob", log_event=events.append)
     assert isinstance(pkt_ab, dict)
-    assert msg_session.receive(sid, "bob", pkt_ab, log_event=events.append) == b"hello bob"
+    res_ab = msg_session.receive(sid, "bob", pkt_ab, log_event=events.append)
+    assert res_ab.status == msg_session.STATUS_DELIVERED
+    assert res_ab.reason_code is None
+    assert res_ab.plaintext == b"hello bob"
 
     pkt_ba = msg_session.send(sid, "bob", "alice", b"hello alice", log_event=events.append)
     assert isinstance(pkt_ba, dict)
-    assert msg_session.receive(sid, "alice", pkt_ba, log_event=events.append) == b"hello alice"
+    res_ba = msg_session.receive(sid, "alice", pkt_ba, log_event=events.append)
+    assert res_ba.status == msg_session.STATUS_DELIVERED
+    assert res_ba.reason_code is None
+    assert res_ba.plaintext == b"hello alice"
 
     # Separate keys per direction and distinct nonces.
     s_alice = msg_session._ACTIVE_SESSIONS[(sid, "alice")]
@@ -77,7 +83,9 @@ def test_chunked_round_trip_uses_unique_nonces() -> None:
     assert [pkt["header"]["chunk_index"] for pkt in packets] == [0, 1, 2]
     assert all(pkt["header"]["chunk_total"] == 3 for pkt in packets)
 
-    assert msg_session.receive(sid, "bob", packets) == payload
+    res = msg_session.receive(sid, "bob", packets)
+    assert res.status == msg_session.STATUS_DELIVERED
+    assert res.plaintext == payload
 
 
 def test_eavesdropper_cannot_decrypt(tmp_path: Path) -> None:
@@ -95,13 +103,15 @@ def test_eavesdropper_cannot_decrypt(tmp_path: Path) -> None:
 
     # Eve cannot decrypt via her own session or via receive() on Alice/Bob's session.
     eve_sid = msg_session.start_session("alice", "eve", alice_sk, eve_sk)
-    with pytest.raises(msg_session.SessionError) as eve_exc:
-        msg_session.receive(eve_sid, "eve", pkt)
-    assert eve_exc.value.reason_code == msg_session.REASON_UNKNOWN_SESSION
+    eve_res = msg_session.receive(eve_sid, "eve", pkt)
+    assert eve_res.status == msg_session.STATUS_FAILED
+    assert eve_res.reason_code == msg_session.REASON_UNKNOWN_SESSION
+    assert eve_res.plaintext is None
 
-    with pytest.raises(msg_session.SessionError) as intercept_exc:
-        msg_session.receive(sid, "eve", pkt)
-    assert intercept_exc.value.reason_code == msg_session.REASON_WRONG_RECIPIENT
+    intercept_res = msg_session.receive(sid, "eve", pkt)
+    assert intercept_res.status == msg_session.STATUS_FAILED
+    assert intercept_res.reason_code == msg_session.REASON_WRONG_RECIPIENT
+    assert intercept_res.plaintext is None
 
 
 def test_replay_rejected() -> None:
@@ -110,11 +120,14 @@ def test_replay_rejected() -> None:
 
     pkt = msg_session.send(sid, "alice", "bob", b"once only")
     assert isinstance(pkt, dict)
-    assert msg_session.receive(sid, "bob", pkt) == b"once only"
+    first_res = msg_session.receive(sid, "bob", pkt)
+    assert first_res.status == msg_session.STATUS_DELIVERED
+    assert first_res.plaintext == b"once only"
 
-    with pytest.raises(msg_session.SessionError) as exc_info:
-        msg_session.receive(sid, "bob", pkt)
-    assert exc_info.value.reason_code == msg_session.REASON_REPLAY
+    replay_res = msg_session.receive(sid, "bob", pkt)
+    assert replay_res.status == msg_session.STATUS_FAILED
+    assert replay_res.reason_code == msg_session.REASON_REPLAY
+    assert replay_res.plaintext is None
 
 
 def test_changed_recipient_rejected() -> None:
@@ -126,9 +139,10 @@ def test_changed_recipient_rejected() -> None:
     tampered = deepcopy(pkt)
     tampered["header"]["recipient"] = "mallory"
 
-    with pytest.raises(msg_session.SessionError) as exc_info:
-        msg_session.receive(sid, "bob", tampered)
-    assert exc_info.value.reason_code == msg_session.REASON_WRONG_RECIPIENT
+    res = msg_session.receive(sid, "bob", tampered)
+    assert res.status == msg_session.STATUS_FAILED
+    assert res.reason_code == msg_session.REASON_WRONG_RECIPIENT
+    assert res.plaintext is None
 
 
 def test_flipped_byte_rejected() -> None:
@@ -144,16 +158,18 @@ def test_flipped_byte_rejected() -> None:
     tampered = deepcopy(pkt)
     tampered["ciphertext"] = base64.b64encode(bytes(tampered_ct)).decode("ascii")
 
-    with pytest.raises(msg_session.SessionError) as exc_info:
-        msg_session.receive(sid, "bob", tampered)
-    assert exc_info.value.reason_code == msg_session.REASON_TAMPERED
+    res = msg_session.receive(sid, "bob", tampered)
+    assert res.status == msg_session.STATUS_FAILED
+    assert res.reason_code == msg_session.REASON_TAMPERED
+    assert res.plaintext is None
 
     # Flipping header metadata (e.g., counter) also fails authentication.
     tampered_hdr = deepcopy(pkt)
     tampered_hdr["header"]["counter"] = 999
-    with pytest.raises(msg_session.SessionError) as hdr_exc:
-        msg_session.receive(sid, "bob", tampered_hdr)
-    assert hdr_exc.value.reason_code == msg_session.REASON_TAMPERED
+    hdr_res = msg_session.receive(sid, "bob", tampered_hdr)
+    assert hdr_res.status == msg_session.STATUS_FAILED
+    assert hdr_res.reason_code == msg_session.REASON_TAMPERED
+    assert hdr_res.plaintext is None
 
 
 def test_unknown_session_rejected() -> None:
@@ -162,6 +178,7 @@ def test_unknown_session_rejected() -> None:
         "header": {
             "version": 1,
             "session_id": "nonexistent-session",
+            "msg_id": "fake-msg",
             "sender": "alice",
             "recipient": "bob",
             "counter": 1,
@@ -171,9 +188,10 @@ def test_unknown_session_rejected() -> None:
         "nonce": base64.b64encode(b"\x00" * 12).decode("ascii"),
         "ciphertext": base64.b64encode(b"bad").decode("ascii"),
     }
-    with pytest.raises(msg_session.SessionError) as exc_info:
-        msg_session.receive("nonexistent-session", "bob", fake_pkt)
-    assert exc_info.value.reason_code == msg_session.REASON_UNKNOWN_SESSION
+    res = msg_session.receive("nonexistent-session", "bob", fake_pkt)
+    assert res.status == msg_session.STATUS_FAILED
+    assert res.reason_code == msg_session.REASON_UNKNOWN_SESSION
+    assert res.plaintext is None
 
 
 def test_bad_signature_rejected_before_key_use(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -236,7 +254,9 @@ def test_old_session_unreadable_after_identity_key_leaks(tmp_path: Path) -> None
 
     recorded_pkt = msg_session.send(sid, "alice", "bob", b"past-session-confidential-data")
     assert isinstance(recorded_pkt, dict)
-    assert msg_session.receive(sid, "bob", recorded_pkt) == b"past-session-confidential-data"
+    rec_res = msg_session.receive(sid, "bob", recorded_pkt)
+    assert rec_res.status == msg_session.STATUS_DELIVERED
+    assert rec_res.plaintext == b"past-session-confidential-data"
 
     # Ephemeral private keys were destroyed at handshake completion.
     assert init_state.eph_x25519_sk is None
@@ -251,21 +271,23 @@ def test_old_session_unreadable_after_identity_key_leaks(tmp_path: Path) -> None
     leaked_bob_sk = bob_sk
 
     # 1. Closed session cannot be decrypted via API.
-    with pytest.raises(msg_session.SessionError) as closed_exc:
-        msg_session.receive(sid, "bob", recorded_pkt)
-    assert closed_exc.value.reason_code == msg_session.REASON_UNKNOWN_SESSION
+    closed_res = msg_session.receive(sid, "bob", recorded_pkt)
+    assert closed_res.status == msg_session.STATUS_FAILED
+    assert closed_res.reason_code == msg_session.REASON_UNKNOWN_SESSION
+    assert closed_res.plaintext is None
 
     # 2. Even replaying the recorded handshake with leaked identity keys cannot
     #    reproduce the old session's ephemeral X25519 or ML-KEM shared secrets.
     attacker_new_sid = msg_session.start_session(
         "alice", "bob", leaked_alice_sk, leaked_bob_sk
     )
-    with pytest.raises(msg_session.SessionError):
-        # Attempting to decrypt the old recorded packet under a newly established
-        # session (even with leaked identity keys) fails.
-        forged_pkt = deepcopy(recorded_pkt)
-        forged_pkt["header"]["session_id"] = attacker_new_sid
-        msg_session.receive(attacker_new_sid, "bob", forged_pkt)
+    # Attempting to decrypt the old recorded packet under a newly established
+    # session (even with leaked identity keys) fails.
+    forged_pkt = deepcopy(recorded_pkt)
+    forged_pkt["header"]["session_id"] = attacker_new_sid
+    forged_res = msg_session.receive(attacker_new_sid, "bob", forged_pkt)
+    assert forged_res.status == msg_session.STATUS_FAILED
+    assert forged_res.plaintext is None
 
     # 3. Attempting offline decryption directly from recorded traffic + leaked
     #    identity keys fails: ML-DSA-65 keys are the wrong size/type for ML-KEM,
@@ -315,7 +337,9 @@ def test_revocation_and_persisted_state_contains_no_keys(isolated_session_env: P
     sid = msg_session.start_session("alice", "bob", alice_sk, bob_sk)
     pkt = msg_session.send(sid, "alice", "bob", b"msg1")
     assert isinstance(pkt, dict)
-    assert msg_session.receive(sid, "bob", pkt) == b"msg1"
+    res = msg_session.receive(sid, "bob", pkt)
+    assert res.status == msg_session.STATUS_DELIVERED
+    assert res.plaintext == b"msg1"
 
     state_file = isolated_session_env / "messaging_replay_state.json"
     assert state_file.exists()

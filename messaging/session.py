@@ -43,6 +43,7 @@ from pathlib import Path
 import secrets
 import struct
 import tempfile
+import time
 from typing import Any, Callable
 import uuid
 
@@ -66,6 +67,10 @@ from pqcrypto.sign.ml_dsa_65 import (
 
 PROTOCOL_VERSION = 1
 DEFAULT_CHUNK_SIZE = 65536
+DEFAULT_REASSEMBLY_TIMEOUT_SECONDS = 30.0
+DEFAULT_MAX_CHUNKS_PER_MESSAGE = 64
+DEFAULT_MAX_PENDING_MESSAGES = 32
+_MAX_FAILED_MSG_HISTORY = 256
 _X25519_KEY_SIZE = 32
 _AES_256_KEY_SIZE = 32
 _DIR_INIT_TO_RESP = 0
@@ -75,12 +80,21 @@ _RESP_TAG = b"PQC-MSG-V1-RESP"
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _STATE_FILENAME = "messaging_replay_state.json"
 
+STATUS_DELIVERED = "DELIVERED"
+STATUS_PENDING = "PENDING"
+STATUS_FAILED = "FAILED"
+
 REASON_REPLAY = "REPLAY"
 REASON_WRONG_RECIPIENT = "WRONG_RECIPIENT"
 REASON_TAMPERED = "TAMPERED"
 REASON_UNKNOWN_SESSION = "UNKNOWN_SESSION"
 REASON_BAD_SIGNATURE = "BAD_SIGNATURE"
 REASON_REVOKED = "REVOKED"
+REASON_DUPLICATE_CHUNK = "DUPLICATE_CHUNK"
+REASON_INCONSISTENT_CHUNKS = "INCONSISTENT_CHUNKS"
+REASON_INCOMPLETE_TIMEOUT = "INCOMPLETE_TIMEOUT"
+REASON_TOO_LARGE = "TOO_LARGE"
+REASON_BUFFER_FULL = "BUFFER_FULL"
 
 LogEventCallback = Callable[[dict[str, Any]], None]
 PublicKeyLookup = Callable[[str], bytes | dict[str, bytes]]
@@ -141,6 +155,30 @@ class InitiatorHandshakeState:
             self.eph_kem_sk = None
 
 
+@dataclass(frozen=True)
+class ReceiveResult:
+    """Result returned by ``receive()`` and ``expire_incomplete()``."""
+
+    status: str
+    reason_code: str | None = None
+    plaintext: bytes | None = None
+    session_id: str | None = None
+    msg_id: str | None = None
+
+
+@dataclass
+class _ChunkBuffer:
+    """Pending authenticated chunks for a single in-flight message."""
+
+    session_id: str
+    msg_id: str
+    sender: str
+    chunk_total: int
+    created_at: float
+    timeout: float
+    chunks: dict[int, bytes] = field(default_factory=dict)
+
+
 @dataclass
 class _EndpointSession:
     """In-memory directional symmetric session state for one participant."""
@@ -153,7 +191,15 @@ class _EndpointSession:
     send_key: bytearray | None
     recv_key: bytearray | None
     send_counter: int = 0
-    chunk_buffers: dict[tuple[str, int, int], dict[int, bytes]] = field(default_factory=dict)
+    chunk_buffers: dict[tuple[str, str], _ChunkBuffer] = field(default_factory=dict)
+    failed_msgs: dict[str, str] = field(default_factory=dict)
+
+    def record_failed_msg(self, msg_id: str, reason_code: str) -> None:
+        """Remember a failed msg_id (bounded) so late chunks are rejected without buffering."""
+        self.failed_msgs[msg_id] = reason_code
+        while len(self.failed_msgs) > _MAX_FAILED_MSG_HISTORY:
+            oldest_key = next(iter(self.failed_msgs))
+            self.failed_msgs.pop(oldest_key, None)
 
     def close(self) -> None:
         """Zero and delete symmetric session keys from memory."""
@@ -164,6 +210,7 @@ class _EndpointSession:
             _wipe_bytearray(self.recv_key)
             self.recv_key = None
         self.chunk_buffers.clear()
+        self.failed_msgs.clear()
 
 
 _PUBLIC_KEY_REGISTRY: dict[str, bytes] = {}
@@ -254,6 +301,7 @@ def _encode_header_aad(header: dict[str, Any]) -> bytes:
     canonical = {
         "version": header["version"],
         "session_id": header["session_id"],
+        "msg_id": header["msg_id"],
         "sender": header["sender"],
         "recipient": header["recipient"],
         "counter": header["counter"],
@@ -810,6 +858,7 @@ def send(
     plaintext: bytes | str,
     *,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
+    msg_id: str | None = None,
     is_revoked_fn: RevocationLookup | None = None,
     log_event: LogEventCallback | None = None,
 ) -> dict[str, Any] | list[dict[str, Any]]:
@@ -821,6 +870,9 @@ def send(
     """
     if chunk_size < 1:
         raise ValueError("chunk_size must be at least 1")
+    if msg_id is not None and (not isinstance(msg_id, str) or not msg_id):
+        raise ValueError("msg_id must be a non-empty string")
+    message_id = msg_id or secrets.token_hex(16)
 
     rev_fn = is_revoked_fn or is_revoked
     try:
@@ -880,6 +932,7 @@ def send(
         header = {
             "version": PROTOCOL_VERSION,
             "session_id": session_id,
+            "msg_id": message_id,
             "sender": sender,
             "recipient": recipient,
             "counter": counter,
@@ -904,7 +957,7 @@ def send(
         action="send",
         target=session_id,
         result="ok",
-        details={"recipient": recipient, "chunks": total},
+        details={"recipient": recipient, "msg_id": message_id, "chunks": total},
     )
     return packets[0] if total == 1 else packets
 
@@ -913,143 +966,334 @@ def _session_exists_for_other_party(session_id: str, recipient: str) -> bool:
     return any(sid == session_id and owner != recipient for sid, owner in _ACTIVE_SESSIONS)
 
 
-def _receive_single_packet(
+def _fail_receive(
+    reason_code: str,
+    *,
     session_id: str,
     recipient: str,
-    packet: dict[str, Any],
-    *,
-    is_revoked_fn: RevocationLookup | None = None,
+    msg_id: str | None = None,
     log_event: LogEventCallback | None = None,
-) -> bytes | None:
-    rev_fn = is_revoked_fn or is_revoked
-
-    try:
-        if not isinstance(packet, dict):
-            raise SessionError(REASON_TAMPERED, "Malformed packet")
-        header = packet.get("header")
-        if not isinstance(header, dict):
-            raise SessionError(REASON_TAMPERED, "Missing packet header")
-
-        required_fields = (
-            "version",
-            "session_id",
-            "sender",
-            "recipient",
-            "counter",
-            "chunk_index",
-            "chunk_total",
-        )
-        if any(field_name not in header for field_name in required_fields):
-            raise SessionError(REASON_TAMPERED, "Incomplete packet header")
-
-        hdr_sid = header["session_id"]
-        hdr_sender = header["sender"]
-        hdr_recipient = header["recipient"]
-        hdr_version = header["version"]
-        counter = header["counter"]
-        chunk_index = header["chunk_index"]
-        chunk_total = header["chunk_total"]
-
-        if hdr_sid != session_id:
-            raise SessionError(REASON_UNKNOWN_SESSION, "Packet session_id does not match target session")
-
-        session = _ACTIVE_SESSIONS.get((session_id, recipient))
-        if session is None or session.recv_key is None:
-            if _session_exists_for_other_party(session_id, recipient) and hdr_recipient != recipient:
-                raise SessionError(REASON_WRONG_RECIPIENT, "Packet recipient does not match receiver")
-            raise SessionError(REASON_UNKNOWN_SESSION, f"Unknown or closed session {session_id}")
-
-        if not isinstance(hdr_sender, str) or not isinstance(hdr_recipient, str):
-            raise SessionError(REASON_TAMPERED, "Invalid sender or recipient field")
-
-        _check_not_revoked(hdr_sender, recipient, rev_fn)
-
-        if hdr_recipient != recipient or hdr_sender != session.peer:
-            raise SessionError(REASON_WRONG_RECIPIENT, "Packet addressed to wrong recipient or unexpected sender")
-
-        if (
-            not isinstance(hdr_version, int)
-            or isinstance(hdr_version, bool)
-            or hdr_version != PROTOCOL_VERSION
-        ):
-            raise SessionError(REASON_TAMPERED, "Invalid protocol version")
-
-        if (
-            not isinstance(counter, int)
-            or isinstance(counter, bool)
-            or counter < 1
-            or not isinstance(chunk_index, int)
-            or isinstance(chunk_index, bool)
-            or not isinstance(chunk_total, int)
-            or isinstance(chunk_total, bool)
-            or chunk_total < 1
-            or chunk_index < 0
-            or chunk_index >= chunk_total
-        ):
-            raise SessionError(REASON_TAMPERED, "Invalid counter or chunk metadata")
-
-        receiver_scope = f"{recipient}:{session.recv_direction}"
-        if _has_seen_counter(session_id, receiver_scope, counter):
-            raise SessionError(REASON_REPLAY, f"Replayed message counter {counter}")
-
-        nonce_b64 = packet.get("nonce")
-        ct_b64 = packet.get("ciphertext")
-        if not isinstance(nonce_b64, str) or not isinstance(ct_b64, str):
-            raise SessionError(REASON_TAMPERED, "Missing nonce or ciphertext")
-
-        try:
-            wire_nonce = base64.b64decode(nonce_b64, validate=True)
-            ciphertext = base64.b64decode(ct_b64, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise SessionError(REASON_TAMPERED, "Invalid Base64 encoding") from exc
-
-        expected_nonce = _derive_nonce(session.recv_direction, counter)
-        if wire_nonce != expected_nonce:
-            raise SessionError(REASON_TAMPERED, "Nonce mismatch")
-
-        aad = _encode_header_aad(header)
-        try:
-            plaintext = AESGCM(bytes(session.recv_key)).decrypt(expected_nonce, ciphertext, aad)
-        except InvalidTag as exc:
-            raise SessionError(REASON_TAMPERED, "Ciphertext or header authentication failed") from exc
-
-        _mark_counter_seen(session_id, receiver_scope, counter)
-
-        if chunk_total == 1:
-            result_bytes: bytes | None = plaintext
-        else:
-            base_counter = counter - chunk_index
-            buf_key = (hdr_sender, base_counter, chunk_total)
-            chunk_map = session.chunk_buffers.setdefault(buf_key, {})
-            chunk_map[chunk_index] = plaintext
-            if len(chunk_map) == chunk_total:
-                completed = b"".join(chunk_map[i] for i in range(chunk_total))
-                session.chunk_buffers.pop(buf_key, None)
-                result_bytes = completed
-            else:
-                result_bytes = None
-    except SessionError as exc:
-        _emit_event(
-            log_event,
-            node=recipient,
-            actor=recipient,
-            action="receive",
-            target=session_id,
-            result="rejected",
-            details={"reason_code": exc.reason_code},
-        )
-        raise
-
+) -> ReceiveResult:
+    """Emit a FAILED audit event (without plaintext or keys) and build a FAILED result."""
+    details: dict[str, Any] = {"reason_code": reason_code}
+    if msg_id is not None:
+        details["msg_id"] = msg_id
     _emit_event(
         log_event,
         node=recipient,
         actor=recipient,
         action="receive",
         target=session_id,
-        result="ok",
-        details={"counter": counter, "chunk_index": chunk_index, "chunk_total": chunk_total},
+        result=STATUS_FAILED,
+        details=details,
     )
-    return result_bytes
+    return ReceiveResult(
+        status=STATUS_FAILED,
+        reason_code=reason_code,
+        plaintext=None,
+        session_id=session_id,
+        msg_id=msg_id,
+    )
+
+
+def _deliver_receive(
+    plaintext: bytes,
+    *,
+    session_id: str,
+    recipient: str,
+    msg_id: str,
+    chunk_total: int,
+    counter: int,
+    log_event: LogEventCallback | None = None,
+) -> ReceiveResult:
+    """Emit a DELIVERED audit event (without plaintext or keys) and build a DELIVERED result."""
+    _emit_event(
+        log_event,
+        node=recipient,
+        actor=recipient,
+        action="receive",
+        target=session_id,
+        result=STATUS_DELIVERED,
+        details={"msg_id": msg_id, "chunk_total": chunk_total, "counter": counter},
+    )
+    return ReceiveResult(
+        status=STATUS_DELIVERED,
+        reason_code=None,
+        plaintext=plaintext,
+        session_id=session_id,
+        msg_id=msg_id,
+    )
+
+
+def _receive_single_packet(
+    session_id: str,
+    recipient: str,
+    packet: dict[str, Any],
+    *,
+    now: float | None = None,
+    max_chunks: int = DEFAULT_MAX_CHUNKS_PER_MESSAGE,
+    max_pending: int = DEFAULT_MAX_PENDING_MESSAGES,
+    reassembly_timeout: float = DEFAULT_REASSEMBLY_TIMEOUT_SECONDS,
+    is_revoked_fn: RevocationLookup | None = None,
+    log_event: LogEventCallback | None = None,
+) -> ReceiveResult:
+    rev_fn = is_revoked_fn or is_revoked
+
+    if not isinstance(packet, dict):
+        return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, log_event=log_event)
+    header = packet.get("header")
+    if not isinstance(header, dict):
+        return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, log_event=log_event)
+
+    hdr_sid = header.get("session_id")
+    hdr_recipient = header.get("recipient")
+    if hdr_sid != session_id:
+        return _fail_receive(REASON_UNKNOWN_SESSION, session_id=session_id, recipient=recipient, log_event=log_event)
+
+    session = _ACTIVE_SESSIONS.get((session_id, recipient))
+    if session is None or session.recv_key is None:
+        if _session_exists_for_other_party(session_id, recipient) and hdr_recipient != recipient:
+            return _fail_receive(REASON_WRONG_RECIPIENT, session_id=session_id, recipient=recipient, log_event=log_event)
+        return _fail_receive(REASON_UNKNOWN_SESSION, session_id=session_id, recipient=recipient, log_event=log_event)
+
+    required_fields = (
+        "version",
+        "session_id",
+        "msg_id",
+        "sender",
+        "recipient",
+        "counter",
+        "chunk_index",
+        "chunk_total",
+    )
+    if any(field_name not in header for field_name in required_fields):
+        return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, log_event=log_event)
+
+    hdr_msg_id = header["msg_id"]
+    hdr_sender = header["sender"]
+    hdr_version = header["version"]
+    counter = header["counter"]
+    chunk_index = header["chunk_index"]
+    chunk_total = header["chunk_total"]
+
+    if not isinstance(hdr_msg_id, str) or not hdr_msg_id:
+        return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, log_event=log_event)
+    if not isinstance(hdr_sender, str) or not isinstance(hdr_recipient, str):
+        return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+    try:
+        _check_not_revoked(hdr_sender, recipient, rev_fn)
+    except SessionError as exc:
+        return _fail_receive(exc.reason_code, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+    if hdr_recipient != recipient or hdr_sender != session.peer:
+        return _fail_receive(REASON_WRONG_RECIPIENT, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+    if (
+        not isinstance(hdr_version, int)
+        or isinstance(hdr_version, bool)
+        or hdr_version != PROTOCOL_VERSION
+    ):
+        return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+    if (
+        not isinstance(counter, int)
+        or isinstance(counter, bool)
+        or counter < 1
+        or not isinstance(chunk_index, int)
+        or isinstance(chunk_index, bool)
+        or not isinstance(chunk_total, int)
+        or isinstance(chunk_total, bool)
+    ):
+        return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+    nonce_b64 = packet.get("nonce")
+    ct_b64 = packet.get("ciphertext")
+    if not isinstance(nonce_b64, str) or not isinstance(ct_b64, str):
+        return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+    try:
+        wire_nonce = base64.b64decode(nonce_b64, validate=True)
+        ciphertext = base64.b64decode(ct_b64, validate=True)
+    except (binascii.Error, ValueError):
+        return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+    expected_nonce = _derive_nonce(session.recv_direction, counter)
+    if wire_nonce != expected_nonce:
+        return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+    # Authenticate chunk on arrival (header is AAD); invalid chunks are dropped and never buffered.
+    aad = _encode_header_aad(header)
+    try:
+        plaintext = AESGCM(bytes(session.recv_key)).decrypt(expected_nonce, ciphertext, aad)
+    except InvalidTag:
+        return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+    receiver_scope = f"{recipient}:{session.recv_direction}"
+    buf_key = (session_id, hdr_msg_id)
+    existing_buf = session.chunk_buffers.get(buf_key)
+
+    if existing_buf is not None:
+        if (
+            chunk_total != existing_buf.chunk_total
+            or chunk_index < 0
+            or chunk_index >= existing_buf.chunk_total
+            or hdr_sender != existing_buf.sender
+        ):
+            session.chunk_buffers.pop(buf_key, None)
+            existing_buf.chunks.clear()
+            session.record_failed_msg(hdr_msg_id, REASON_INCONSISTENT_CHUNKS)
+            return _fail_receive(
+                REASON_INCONSISTENT_CHUNKS,
+                session_id=session_id,
+                recipient=recipient,
+                msg_id=hdr_msg_id,
+                log_event=log_event,
+            )
+
+        if chunk_index in existing_buf.chunks:
+            if not _has_seen_counter(session_id, receiver_scope, counter):
+                _mark_counter_seen(session_id, receiver_scope, counter)
+            return ReceiveResult(
+                status=STATUS_PENDING,
+                reason_code=REASON_DUPLICATE_CHUNK,
+                plaintext=None,
+                session_id=session_id,
+                msg_id=hdr_msg_id,
+            )
+
+        if _has_seen_counter(session_id, receiver_scope, counter):
+            return _fail_receive(REASON_REPLAY, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+        _mark_counter_seen(session_id, receiver_scope, counter)
+        existing_buf.chunks[chunk_index] = plaintext
+        if len(existing_buf.chunks) == existing_buf.chunk_total:
+            completed = b"".join(existing_buf.chunks[i] for i in range(existing_buf.chunk_total))
+            session.chunk_buffers.pop(buf_key, None)
+            existing_buf.chunks.clear()
+            return _deliver_receive(
+                completed,
+                session_id=session_id,
+                recipient=recipient,
+                msg_id=hdr_msg_id,
+                chunk_total=chunk_total,
+                counter=counter,
+                log_event=log_event,
+            )
+        return ReceiveResult(
+            status=STATUS_PENDING,
+            reason_code=None,
+            plaintext=None,
+            session_id=session_id,
+            msg_id=hdr_msg_id,
+        )
+
+    if _has_seen_counter(session_id, receiver_scope, counter):
+        return _fail_receive(REASON_REPLAY, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+    if hdr_msg_id in session.failed_msgs:
+        return _fail_receive(
+            session.failed_msgs[hdr_msg_id],
+            session_id=session_id,
+            recipient=recipient,
+            msg_id=hdr_msg_id,
+            log_event=log_event,
+        )
+
+    if chunk_total < 1 or chunk_index < 0 or chunk_index >= chunk_total:
+        session.record_failed_msg(hdr_msg_id, REASON_INCONSISTENT_CHUNKS)
+        return _fail_receive(
+            REASON_INCONSISTENT_CHUNKS,
+            session_id=session_id,
+            recipient=recipient,
+            msg_id=hdr_msg_id,
+            log_event=log_event,
+        )
+
+    if chunk_total > max_chunks:
+        return _fail_receive(REASON_TOO_LARGE, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+    if chunk_total == 1:
+        _mark_counter_seen(session_id, receiver_scope, counter)
+        return _deliver_receive(
+            plaintext,
+            session_id=session_id,
+            recipient=recipient,
+            msg_id=hdr_msg_id,
+            chunk_total=chunk_total,
+            counter=counter,
+            log_event=log_event,
+        )
+
+    if len(session.chunk_buffers) >= max_pending:
+        return _fail_receive(REASON_BUFFER_FULL, session_id=session_id, recipient=recipient, msg_id=hdr_msg_id, log_event=log_event)
+
+    _mark_counter_seen(session_id, receiver_scope, counter)
+    current_now = time.monotonic() if now is None else float(now)
+    session.chunk_buffers[buf_key] = _ChunkBuffer(
+        session_id=session_id,
+        msg_id=hdr_msg_id,
+        sender=hdr_sender,
+        chunk_total=chunk_total,
+        created_at=current_now,
+        timeout=float(reassembly_timeout),
+        chunks={chunk_index: plaintext},
+    )
+    return ReceiveResult(
+        status=STATUS_PENDING,
+        reason_code=None,
+        plaintext=None,
+        session_id=session_id,
+        msg_id=hdr_msg_id,
+    )
+
+
+def expire_incomplete(
+    now: float | None = None,
+    *,
+    session_id: str | None = None,
+    recipient: str | None = None,
+    timeout: float | None = None,
+    log_event: LogEventCallback | None = None,
+) -> list[ReceiveResult]:
+    """Discard incomplete buffered messages older than the configured timeout."""
+    if timeout is not None and timeout < 0:
+        raise ValueError("timeout must be non-negative")
+    current_now = time.monotonic() if now is None else float(now)
+    expired_results: list[ReceiveResult] = []
+
+    for (sid, owner), session in list(_ACTIVE_SESSIONS.items()):
+        if session_id is not None and sid != session_id:
+            continue
+        if recipient is not None and owner != recipient:
+            continue
+        for buf_key in list(session.chunk_buffers.keys()):
+            buf = session.chunk_buffers[buf_key]
+            effective_timeout = buf.timeout if timeout is None else float(timeout)
+            if current_now - buf.created_at >= effective_timeout:
+                session.chunk_buffers.pop(buf_key, None)
+                buf.chunks.clear()
+                session.record_failed_msg(buf.msg_id, REASON_INCOMPLETE_TIMEOUT)
+                _emit_event(
+                    log_event,
+                    node=owner,
+                    actor=owner,
+                    action="receive",
+                    target=sid,
+                    result=STATUS_FAILED,
+                    details={"reason_code": REASON_INCOMPLETE_TIMEOUT, "msg_id": buf.msg_id},
+                )
+                expired_results.append(
+                    ReceiveResult(
+                        status=STATUS_FAILED,
+                        reason_code=REASON_INCOMPLETE_TIMEOUT,
+                        plaintext=None,
+                        session_id=sid,
+                        msg_id=buf.msg_id,
+                    )
+                )
+
+    return expired_results
 
 
 def receive(
@@ -1057,28 +1301,50 @@ def receive(
     recipient: str,
     packet: dict[str, Any] | list[dict[str, Any]],
     *,
+    now: float | None = None,
+    max_chunks: int = DEFAULT_MAX_CHUNKS_PER_MESSAGE,
+    max_pending: int = DEFAULT_MAX_PENDING_MESSAGES,
+    reassembly_timeout: float = DEFAULT_REASSEMBLY_TIMEOUT_SECONDS,
     is_revoked_fn: RevocationLookup | None = None,
     log_event: LogEventCallback | None = None,
-) -> bytes | None:
-    """Verify, decrypt, and replay-check one packet or a list of chunked packets."""
+) -> ReceiveResult:
+    """Verify, decrypt, replay-check, and reassemble one packet or a list of packets."""
+    if max_chunks < 1:
+        raise ValueError("max_chunks must be at least 1")
+    if max_pending < 1:
+        raise ValueError("max_pending must be at least 1")
+    if reassembly_timeout < 0:
+        raise ValueError("reassembly_timeout must be non-negative")
+
     if isinstance(packet, list):
         if not packet:
-            raise SessionError(REASON_TAMPERED, "Empty packet list")
-        output: bytes | None = None
+            return _fail_receive(REASON_TAMPERED, session_id=session_id, recipient=recipient, log_event=log_event)
+        last_result: ReceiveResult | None = None
         for item in packet:
-            output = _receive_single_packet(
+            last_result = _receive_single_packet(
                 session_id,
                 recipient,
                 item,
+                now=now,
+                max_chunks=max_chunks,
+                max_pending=max_pending,
+                reassembly_timeout=reassembly_timeout,
                 is_revoked_fn=is_revoked_fn,
                 log_event=log_event,
             )
-        return output
+            if last_result.status == STATUS_FAILED:
+                return last_result
+        assert last_result is not None
+        return last_result
 
     return _receive_single_packet(
         session_id,
         recipient,
         packet,
+        now=now,
+        max_chunks=max_chunks,
+        max_pending=max_pending,
+        reassembly_timeout=reassembly_timeout,
         is_revoked_fn=is_revoked_fn,
         log_event=log_event,
     )

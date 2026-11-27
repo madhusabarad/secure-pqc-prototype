@@ -1,8 +1,9 @@
-"""End-to-end prototype demonstration for Track 4 access control, protected_read, and Part A messaging."""
+"""End-to-end prototype demonstration for Track 4 access control, protected_read, Part A messaging, and Detector."""
 
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
@@ -15,6 +16,8 @@ import tempfile
 
 from pqcrypto.kem.ml_kem_768 import decrypt as ml_kem_decrypt, generate_keypair as ml_kem_generate_keypair
 
+from detector import detector as sec_detector
+from detector.evaluator import evaluate_detector
 from messaging.demo_part_a import run_demo as run_part_a_demo
 
 REPO_ROOT = Path(__file__).parent.resolve()
@@ -158,11 +161,55 @@ def _run_protected_read_flow() -> None:
         print(f"Revoked owner protected_read: decision={deny_res['decision']}, ciphertext_present={'ciphertext' in deny_res}")
 
 
+def _run_detector_flow() -> None:
+    """Demonstrate Person D cybersecurity detector benchmark evaluation and explainable alerts."""
+    print("\n=== 4. Cybersecurity Anomaly Detector & Evaluation ===")
+    metrics = evaluate_detector(seed=42, count=1000)
+    print("Evaluation benchmark (1,000 synthetic events):")
+    print(f"  Precision: {metrics['precision']:.3f}")
+    print(f"  Recall:    {metrics['recall']:.3f}")
+    print(f"  F1 Score:  {metrics['f1_score']:.3f}")
+    print(f"  False Alerts / 1k benign: {metrics['false_alerts_per_1000']:.1f}")
+    print(f"  Median Time To Alert:     {metrics['median_time_to_alert_seconds']:.1f}s")
+
+    now_utc = datetime.now(timezone.utc).isoformat()
+    attack_events = [
+        {
+            "event_id": "demo-attack-priv-1",
+            "event_time_utc": now_utc,
+            "actor": "user07",
+            "source_service": "portal",
+            "target_service": "auth",
+            "action": "role_change",
+            "role_before": "user",
+            "role_after": "superadmin",
+            "approval_id": None,
+            "source_clock_offset_ms": 120,
+        },
+        {
+            "event_id": "demo-attack-lat-1",
+            "event_time_utc": now_utc,
+            "actor": "user03",
+            "source_service": "portal",
+            "target_service": "database_admin",
+            "action": "query",
+            "role_before": "analyst",
+            "role_after": "analyst",
+            "source_clock_offset_ms": -50,
+        },
+    ]
+    alerts = sec_detector.run(attack_events)
+    print(f"\nInjected attack detection: {len(alerts)} alerts triggered from {len(attack_events)} attack events")
+    for alert in alerts:
+        print(f"  [{alert['severity']}] {alert['rule']}: {alert['reason']}")
+
+
 def main() -> int:
     _run_track4_flow()
     _run_protected_read_flow()
     print("\n=== 3. Part A Secure Messaging Scenarios ===")
     run_part_a_demo()
+    _run_detector_flow()
     return 0
 
 

@@ -1,1 +1,281 @@
-{"asset":"protected-resource","boundary":"identity-check"}
+{
+  "asset": "protected-resource",
+  "boundary": "identity-check",
+  "title": "Unified Threat Model: Post-Quantum Secure Messaging, Trusted Access Adapter, and SOC Anomaly Detection",
+  "version": "1.0.0",
+  "system_overview": {
+    "scope": "End-to-end post-quantum cryptographic prototype covering PQC messaging, access control, audit integrity, crash recovery, and security anomaly detection.",
+    "execution_model": "Isolated process execution per adapter request reading JSON over stdin and writing JSON over stdout; zero shared memory state.",
+    "cryptographic_primitives": [
+      "ML-KEM-768 (FIPS 203) - Post-Quantum Key Encapsulation",
+      "ML-DSA-65 (FIPS 204) - Post-Quantum Digital Signatures",
+      "X25519 - Classical Diffie-Hellman Key Agreement (Hybrid PQC)",
+      "AES-256-GCM - Authenticated Symmetric Encryption with Associated Data",
+      "SHA-256 - Cryptographic Hashing and Hash-Chained Audit Ledger",
+      "HMAC-SHA-256 - Keyed Proof of Possession and Checkpoint Signatures",
+      "HKDF-SHA256 - Symmetric Key Derivation with Transcript Binding"
+    ]
+  },
+  "part_c": {
+    "scope": "Core trusted adapter interface, atomic on-disk state store, tamper-evident audit logging, single-commit crash recovery, and post-quantum signed backups.",
+    "primary_component": "track4_service.py -> team_app.dispatch",
+    "protected_assets": [
+      {
+        "asset": "audit.log",
+        "description": "Chronological record of security events and access decisions.",
+        "security_requirements": ["append-only", "integrity", "tamper-evidence", "non-repudiation"]
+      },
+      {
+        "asset": "state.json",
+        "description": "Set of permanently revoked actors, ownership registry, and disabled identities.",
+        "security_requirements": ["persistence across process crashes", "monotonicity (cannot be undone by restore)"]
+      },
+      {
+        "asset": "backups",
+        "description": "Exported archives of state and cryptographic metadata.",
+        "security_requirements": ["authenticity", "integrity", "rollback protection (key_version)"]
+      },
+      {
+        "asset": "contents",
+        "description": "Sensitive stored asset bodies.",
+        "security_requirements": ["confidentiality (disclosed only to authorized non-revoked owners)"]
+      },
+      {
+        "asset": "key_material",
+        "description": "Sensitive configuration/key seed.",
+        "security_requirements": ["stored strictly in local state file", "zero leakage to stdout, stderr, or audit logs"]
+      }
+    ],
+    "trust_boundaries": [
+      {
+        "name": "Boundary 1: Adapter Input Interface",
+        "interfaces": ["stdin", "stdout", "stderr"],
+        "threats_mitigated": [
+          "Malformed JSON and parsing denial of service (1 MiB input cap enforced)",
+          "Parameter spoofing (actor identity pinned to validated request['actor'])",
+          "Log injection (free-text newlines and fake JSON escaped via canonical serialization)",
+          "Diagnostic information leaks (exceptions caught globally, tracebacks suppressed)"
+        ]
+      },
+      {
+        "name": "Boundary 2: Local State Storage Directory",
+        "interfaces": ["TRACK4_STATE_DIR", "file locks"],
+        "threats_mitigated": [
+          "Concurrent access races (store.py mutex via store.lock)",
+          "Mid-transaction crash corruption (write-ahead journal with atomic os.replace)",
+          "Audit history alteration (SHA-256 hash chaining and ML-DSA-65 signed checkpoints)"
+        ]
+      }
+    ],
+    "adversaries": [
+      {
+        "id": "ADV-C1",
+        "name": "Malicious / Revoked Client",
+        "threat": "Attempts to read assets post-revocation, inject unescaped newlines/JSON into audit log, or spoof identity via extra fields like actor_id.",
+        "mitigation": "Monotonic revocation enforcement, canonical JSON serialization, strict actor pinning to validated request['actor']."
+      },
+      {
+        "id": "ADV-C2",
+        "name": "Local Process Disruptor",
+        "threat": "Crashes the service mid-transaction during revocation to leave state inconsistent or rollback access revocation.",
+        "mitigation": "Write-ahead journal with single commit point (os.replace); revocations are roll-forward and re-applied idempotently on startup."
+      },
+      {
+        "id": "ADV-C3",
+        "name": "Backup Manipulator",
+        "threat": "Modifies backup contents, attempts rollback to previous key_version, or restores an older backup to un-revoke an actor.",
+        "mitigation": "ML-DSA-65 signed manifest with SHA-256 state digest; restore strictly enforces current.revoked UNION backup.revoked and monotonic key_version."
+      },
+      {
+        "id": "ADV-C4",
+        "name": "Audit Log Tamperer",
+        "threat": "Modifies historical log entries to conceal violations or deletes tail entries to hide recent activity.",
+        "mitigation": "SHA-256 hash chaining across every entry; signed ML-DSA-65 checkpoint binding seq and head hash."
+      }
+    ],
+    "security_controls": [
+      {
+        "threat": "Parameter Spoofing (actor_id injected)",
+        "defense": "Actor identity pinned strictly to validated request['actor']; extra fields discarded.",
+        "proving_test": "tests/test_adapter.py::test_extra_actor_id_cannot_change_recorded_actor"
+      },
+      {
+        "threat": "Log Injection (newlines & fake JSON)",
+        "defense": "Canonical JSON serialization encodes free-text values into standard string literals.",
+        "proving_test": "tests/test_adapter.py::test_newline_and_fake_json_injection_in_freetext"
+      },
+      {
+        "threat": "Mid-Log Tampering",
+        "defense": "SHA-256(prefix || prev_hash || canonical_entry); modifying any field invalidates subsequent hash chain.",
+        "proving_test": "tests/test_adapter.py::test_tampered_log_line_detected"
+      },
+      {
+        "threat": "Tail Log Truncation",
+        "defense": "Atomic signed checkpoint.json binds current seq and head hash using ML-DSA-65 signatures.",
+        "proving_test": "tests/test_adapter.py::test_deleting_last_entry_detected_via_checkpoint"
+      },
+      {
+        "threat": "Mid-Transaction Crash",
+        "defense": "Write-ahead journal with single commit point (os.replace); roll-forward idempotent recovery.",
+        "proving_test": "scripts/crash_test.py (all 4 injection points)"
+      },
+      {
+        "threat": "Revocation Rollback via Restore",
+        "defense": "restore_backup performs union merge (current.revoked | backup.revoked).",
+        "proving_test": "tests/test_adapter.py::test_old_valid_backup_cannot_restore_revoked_actor"
+      },
+      {
+        "threat": "Backup Tampering",
+        "defense": "Manifest containing SHA-256 digest signed with ML-DSA-65 verified prior to applying.",
+        "proving_test": "tests/test_adapter.py::test_damaged_backup_is_refused"
+      },
+      {
+        "threat": "Secret Leaks in Diagnostics",
+        "defense": "Global try/except in track4_service.py catches all exceptions and emits generic error strings.",
+        "proving_test": "tests/test_adapter.py::test_validator_11_behaviors"
+      }
+    ],
+    "known_limitations": [
+      "ML-DSA-65 signing key is stored in TRACK4_STATE_DIR; external head hash anchoring recommended for out-of-band anchoring.",
+      "Single-node crash recovery semantics; multi-node consensus out of scope for Part C adapter.",
+      "Protected read interface provides zero body disclosure on deny, auditing all attempts."
+    ]
+  },
+  "part_a": {
+    "scope": "Post-Quantum Secure Messaging & Protected Read Interoperability",
+    "components": [
+      "messaging.session",
+      "messaging.protocol",
+      "messaging.protected_read",
+      "messaging.demo_part_a"
+    ],
+    "protected_assets": [
+      {
+        "asset": "message_payloads",
+        "description": "Confidential communication exchanged between parties.",
+        "security_requirements": ["end-to-end confidentiality", "integrity", "authenticity"]
+      },
+      {
+        "asset": "session_keys",
+        "description": "Directional AES-256-GCM symmetric session keys derived via HKDF.",
+        "security_requirements": ["forward secrecy", "memory clearing upon session closure"]
+      },
+      {
+        "asset": "protected_read_proof",
+        "description": "ML-KEM-768 encapsulated secret and HMAC-SHA256 proof over challenge and stored body.",
+        "security_requirements": ["proof tied to challenge and stored body", "zero disclosure of raw shared secret"]
+      }
+    ],
+    "trust_boundaries": [
+      {
+        "name": "Untrusted Network Wire",
+        "threats_mitigated": [
+          "Passive wiretapping (thwarted by hybrid ML-KEM-768 + X25519 key encapsulation)",
+          "Packet replay (atomic tracking in messaging_replay_state.json rejecting duplicated counters)",
+          "Tampering with headers or ciphertext (AES-256-GCM authenticated tag and AAD header binding)",
+          "Destination tampering (handshake signs sender and recipient with ML-DSA-65)"
+        ]
+      }
+    ],
+    "adversaries": [
+      {
+        "id": "ADV-A1",
+        "name": "Passive Network Eavesdropper",
+        "threat": "Intercepts packets on the network wire to read plaintext or harvest traffic for future quantum cryptanalysis.",
+        "mitigation": "Hybrid post-quantum key exchange (ML-KEM-768 + X25519) with AES-256-GCM authenticated encryption."
+      },
+      {
+        "id": "ADV-A2",
+        "name": "Active Network Replayer & Tamperer",
+        "threat": "Replays past valid packets, modifies ciphertext bytes, or alters destination headers.",
+        "mitigation": "Atomic replay tracking in messaging_replay_state.json rejecting duplicated counters; AES-256-GCM authentication tag and AAD header binding."
+      },
+      {
+        "id": "ADV-A3",
+        "name": "Post-Handshake Key Compromiser",
+        "threat": "Steals long-term identity keys after session completes to decrypt historical transcripts.",
+        "mitigation": "Ephemeral key exchange; private keys zeroed immediately post-handshake and symmetric keys wiped on close_session()."
+      }
+    ],
+    "goals_verification": [
+      {
+        "goal": "Replay Rejection",
+        "status": "implemented",
+        "proving_tests": ["test_replay_rejected", "test_duplicate_chunk_ignored_and_message_completes"],
+        "mechanism": "Atomic persistence to messaging_replay_state.json tracking (session_id, receiver_scope, counter)."
+      },
+      {
+        "goal": "Recipient Binding",
+        "status": "implemented",
+        "proving_tests": ["test_changed_recipient_rejected", "test_eavesdropper_cannot_decrypt"],
+        "mechanism": "Handshake signs sender and recipient with ML-DSA-65 and binds them into HKDF transcript; receive() checks header recipient as AES-256-GCM AAD."
+      },
+      {
+        "goal": "Forward Secrecy",
+        "status": "implemented",
+        "proving_tests": ["test_old_session_unreadable_after_identity_key_leaks"],
+        "mechanism": "Session keys derived via HKDF-SHA256 from fresh ephemeral X25519 and ML-KEM-768 shared secrets; close_session() zeroes symmetric keys in memory."
+      },
+      {
+        "goal": "Delivery Under Loss / Reordering",
+        "status": "implemented",
+        "proving_tests": ["test_shuffled_chunks_delivered_correctly", "test_one_dropped_chunk_fails_after_expire_incomplete"],
+        "mechanism": "Chunks authenticated on arrival, buffered by (session_id, msg_id) and chunk_index, expired after timeout via expire_incomplete()."
+      },
+      {
+        "goal": "Protected Read Interoperability",
+        "status": "implemented",
+        "proving_tests": ["test_protected_read_round_trip", "test_protected_read_proof_is_lowercase_hex_64"],
+        "mechanism": "Encapsulates with Base64 ML-KEM-768 public key, returning Base64 ciphertext and lowercase 64-hex HMAC-SHA-256 proof over challenge + body."
+      }
+    ],
+    "known_limitations": [
+      "No per-message ratcheting during an active open session.",
+      "Pre-handshake ML-DSA-65 identity key theft permits MITM impersonation on new handshakes.",
+      "Wire metadata (headers, chunk counts, ciphertext size) remains unencrypted."
+    ]
+  },
+  "detector": {
+    "scope": "Deterministic Cybersecurity Anomaly Detection & Uncertainty-Aware SOC Pipeline",
+    "components": [
+      "detector.detector",
+      "detector.evaluator",
+      "detector.rules",
+      "detector.time_order"
+    ],
+    "protected_assets": [
+      {
+        "asset": "role_assignment_integrity",
+        "description": "Integrity of privilege modifications and administrative role changes.",
+        "security_requirements": ["all role changes must bind to valid approved tickets in approvals registry"]
+      },
+      {
+        "asset": "service_pathways",
+        "description": "Authorized lateral communication paths between microservices.",
+        "security_requirements": ["unauthorized service hops must be immediately flagged upon first traversal"]
+      },
+      {
+        "asset": "event_ordering",
+        "description": "True chronological sequence of distributed events despite clock offset.",
+        "security_requirements": ["bounded clock skew compensation (+/-120s) and explicit uncertainty tagging"]
+      }
+    ],
+    "rules": [
+      {
+        "rule_id": "PRIVILEGE_CHANGE_WITHOUT_APPROVAL",
+        "threat": "Privilege escalation by unauthorized actors or role changes without valid approval ticket.",
+        "defense": "Deterministic cross-reference against simdata/approvals.json ensuring approval status, actor, and role match."
+      },
+      {
+        "rule_id": "LATERAL_MOVEMENT_FIRST_PATH",
+        "threat": "Intruder hopping between services along unobserved or unauthorized pathways.",
+        "defense": "Actor profile tracking with immediate first-path violation alerts."
+      },
+      {
+        "rule_id": "DATA_ACCESS_SPIKE",
+        "threat": "Exfiltration or credential harvesting characterized by sudden bursts in data read activity.",
+        "defense": "Sliding window rate monitoring against baseline threshold with alert cooldown."
+      }
+    ]
+  }
+}

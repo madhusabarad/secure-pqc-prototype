@@ -78,6 +78,45 @@ Built with an executive, modern light-theme design system (clean slate backgroun
 - **Isolated Judged Path**: Uses clean subprocess execution against `track4_service.py` with temporary state isolation (`TRACK4_STATE_DIR`), preserving adapter integrity.
 
 
+## Part C: Trust, but verify (Adapter, Access Control, Audit Log, Recovery)
+
+Part C implements the core trusted adapter interface, atomic on-disk state storage, tamper-evident audit logging, single-commit crash recovery, and post-quantum signed backups.
+
+### Architecture & Components
+- **`track4_service.py`**: Byte-identical entry point to the toolkit starter. Reads JSON requests from stdin, invokes `team_app.dispatch()`, writes JSON responses to stdout, and exits.
+- **`team_app.py`**: Request dispatcher with fail-closed security wrapper. Catches exceptions and returns `{"decision": "deny"}` for read/protected_read access operations and logs the denial.
+- **`access/access.py`**: Pure access control evaluation (`decide` and `check` alias). Enforces owner match, disabled actor checks, and permanent revocation checks.
+- **`auditlog/store.py`**: Atomic state storage with `O_CREAT | O_EXCL` file locking, stale-lock recovery, and atomic replacement via `os.replace`.
+- **`auditlog/audit.py`**: Hash-chained JSON Lines audit log (`audit.log`) using the organizers' schema, canonical JSON serialization, and post-quantum ML-DSA-65 signed checkpoints (`checkpoint.json`). Tail verification ensures append operations never rescan the whole file.
+- **`auditlog/recovery.py`**: Write-ahead transaction journal with a single atomic commit point. Revocations are strictly roll-forward across crashes.
+- **`auditlog/backup.py`**: Post-quantum ML-DSA-65 signed backups with SHA-256 state digest verification, rollback protection (`key_version`), and monotonic revocation preservation (`current.revoked UNION backup.revoked`).
+- **`messaging/protected_read.py`**: Helper encapsulating shared secrets with ML-KEM-768 and generating lowercase hex HMAC-SHA256 proofs over `challenge + body`.
+
+### Key Commands
+```bash
+# Run the official lost-device validator (11/11 checks)
+python toolkit/trust-but-verify-toolkit-1.0.0/validate.py --entry track4_service.py
+
+# Run Part C security and attack test suite
+python -m pytest tests/test_adapter.py -v
+
+# Run crash recovery test harness (4 transactional checkpoints)
+python scripts/crash_test.py
+
+# Cryptographically verify audit log integrity
+python scripts/verify_log.py --state-dir <state_dir>
+
+# Run performance and latency benchmark
+python scripts/measure.py
+```
+
+### Known Limitations
+- The audit signing key is stored in the local state directory; external verification requires exporting the head hash out-of-band.
+- Log verification cannot detect an adversary who has local write access and rewrites both the log and the key.
+- All processes and state are simulated on one machine; distributed Byzantine consensus is out of scope.
+- Revocation of a key is permanent; re-enrolment issues a fresh key rather than re-enabling an old key.
+
+
 ## Credits
 
 Adapter starters and the validator come from the official Track 4 Toolkit (`ScalerOpenSourceLabs/Track-4-Toolkit`).

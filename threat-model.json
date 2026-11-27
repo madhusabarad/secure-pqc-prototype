@@ -28,12 +28,12 @@
       {
         "asset": "state.json",
         "description": "Set of permanently revoked actors, ownership registry, and disabled identities.",
-        "security_requirements": ["persistence across process crashes", "monotonicity (cannot be undone by restore)"]
+        "security_requirements": ["persistence across process crashes", "monotonicity (revocation of a key is permanent; cannot be undone by restore)"]
       },
       {
         "asset": "backups",
         "description": "Exported archives of state and cryptographic metadata.",
-        "security_requirements": ["authenticity", "integrity", "rollback protection (key_version)"]
+        "security_requirements": ["authenticity", "integrity", "rollback protection (key_version)", "revocation preservation (current.revoked UNION backup.revoked)"]
       },
       {
         "asset": "contents",
@@ -51,8 +51,8 @@
         "name": "Boundary 1: Adapter Input Interface",
         "interfaces": ["stdin", "stdout", "stderr"],
         "threats_mitigated": [
-          "Malformed JSON and parsing denial of service (1 MiB input cap enforced)",
-          "Parameter spoofing (actor identity pinned to validated request['actor'])",
+          "Malformed JSON and parsing denial of service (strict validation and fail-closed dispatch)",
+          "Parameter spoofing (actor identity pinned strictly to validated request['actor'])",
           "Log injection (free-text newlines and fake JSON escaped via canonical serialization)",
           "Diagnostic information leaks (exceptions caught globally, tracebacks suppressed)"
         ]
@@ -61,7 +61,7 @@
         "name": "Boundary 2: Local State Storage Directory",
         "interfaces": ["TRACK4_STATE_DIR", "file locks"],
         "threats_mitigated": [
-          "Concurrent access races (store.py mutex via store.lock)",
+          "Concurrent access races (store.py mutex via store.lock with stale-lock timeout)",
           "Mid-transaction crash corruption (write-ahead journal with atomic os.replace)",
           "Audit history alteration (SHA-256 hash chaining and ML-DSA-65 signed checkpoints)"
         ]
@@ -71,14 +71,14 @@
       {
         "id": "ADV-C1",
         "name": "Malicious / Revoked Client",
-        "threat": "Attempts to read assets post-revocation, inject unescaped newlines/JSON into audit log, or spoof identity via extra fields like actor_id.",
+        "threat": "Attempts to read assets post-revocation, inject unescaped newlines/JSON into audit log, or spoof identity via extra fields like actor_id or role.",
         "mitigation": "Monotonic revocation enforcement, canonical JSON serialization, strict actor pinning to validated request['actor']."
       },
       {
         "id": "ADV-C2",
         "name": "Local Process Disruptor",
         "threat": "Crashes the service mid-transaction during revocation to leave state inconsistent or rollback access revocation.",
-        "mitigation": "Write-ahead journal with single commit point (os.replace); revocations are roll-forward and re-applied idempotently on startup."
+        "mitigation": "Write-ahead journal with single commit point (os.replace); crashes after revoke intent roll forward and re-apply idempotently on startup."
       },
       {
         "id": "ADV-C3",
@@ -95,50 +95,77 @@
     ],
     "security_controls": [
       {
-        "threat": "Parameter Spoofing (actor_id injected)",
+        "threat": "Input Attacks & Malformed JSON",
+        "defense": "Fail-closed dispatch returning deny for access ops and generic exit 1 for unknown ops.",
+        "proving_test": "tests/test_adapter.py::test_attack_input"
+      },
+      {
+        "threat": "Parameter Spoofing (actor_id / role injected)",
         "defense": "Actor identity pinned strictly to validated request['actor']; extra fields discarded.",
-        "proving_test": "tests/test_adapter.py::test_extra_actor_id_cannot_change_recorded_actor"
+        "proving_test": "tests/test_adapter.py::test_attack_extra_fields"
+      },
+      {
+        "threat": "Path Traversal (../../ or device names in IDs)",
+        "defense": "Opaque identifier validation; state writes never touch files outside state directory.",
+        "proving_test": "tests/test_adapter.py::test_attack_path_traversal"
       },
       {
         "threat": "Log Injection (newlines & fake JSON)",
         "defense": "Canonical JSON serialization encodes free-text values into standard string literals.",
-        "proving_test": "tests/test_adapter.py::test_newline_and_fake_json_injection_in_freetext"
+        "proving_test": "tests/test_adapter.py::test_attack_log_injection"
       },
       {
-        "threat": "Mid-Log Tampering",
-        "defense": "SHA-256(prefix || prev_hash || canonical_entry); modifying any field invalidates subsequent hash chain.",
-        "proving_test": "tests/test_adapter.py::test_tampered_log_line_detected"
+        "threat": "Access Policy Enforcement",
+        "defense": "Owner allow; wrong owner, disabled, and revoked deny; read and protected_read match.",
+        "proving_test": "tests/test_adapter.py::test_attack_access"
       },
       {
-        "threat": "Tail Log Truncation",
-        "defense": "Atomic signed checkpoint.json binds current seq and head hash using ML-DSA-65 signatures.",
-        "proving_test": "tests/test_adapter.py::test_deleting_last_entry_detected_via_checkpoint"
+        "threat": "State Monotonicity & Persistence",
+        "defense": "Revocation survives process restarts; repeated setup creates fresh state; duplicate request_id returns most recent read decision.",
+        "proving_test": "tests/test_adapter.py::test_attack_persistence"
+      },
+      {
+        "threat": "Mid-Log Tampering & Tail Deletion",
+        "defense": "SHA-256 hash chain and ML-DSA-65 signed checkpoint; detects corrupted line, deletion, or reordering.",
+        "proving_test": "tests/test_adapter.py::test_attack_log_tamper"
       },
       {
         "threat": "Mid-Transaction Crash",
-        "defense": "Write-ahead journal with single commit point (os.replace); roll-forward idempotent recovery.",
+        "defense": "Write-ahead journal with single commit point (os.replace); revocations roll forward; uncommitted non-revocations roll back.",
         "proving_test": "scripts/crash_test.py (all 4 injection points)"
       },
       {
         "threat": "Revocation Rollback via Restore",
-        "defense": "restore_backup performs union merge (current.revoked | backup.revoked).",
-        "proving_test": "tests/test_adapter.py::test_old_valid_backup_cannot_restore_revoked_actor"
+        "defense": "restore_backup performs union merge (current.revoked UNION backup.revoked). Revocation of a key is permanent; re-enrolment issues a NEW key.",
+        "proving_test": "tests/test_adapter.py::test_attack_backup"
       },
       {
-        "threat": "Backup Tampering",
-        "defense": "Manifest containing SHA-256 digest signed with ML-DSA-65 verified prior to applying.",
-        "proving_test": "tests/test_adapter.py::test_damaged_backup_is_refused"
+        "threat": "Backup Tampering & Version Rollback",
+        "defense": "Manifest containing SHA-256 digest signed with ML-DSA-65 verified prior to applying; older key_version rejected.",
+        "proving_test": "tests/test_adapter.py::test_attack_backup"
+      },
+      {
+        "threat": "Concurrent Execution Races",
+        "defense": "File mutex with atomic creation and stale-lock timeout prevents corruption and deadlock.",
+        "proving_test": "tests/test_adapter.py::test_attack_concurrency"
       },
       {
         "threat": "Secret Leaks in Diagnostics",
         "defense": "Global try/except in track4_service.py catches all exceptions and emits generic error strings.",
-        "proving_test": "tests/test_adapter.py::test_validator_11_behaviors"
+        "proving_test": "tests/test_adapter.py::test_attack_leak_check"
+      },
+      {
+        "threat": "Protected Read Interoperability",
+        "defense": "ML-KEM-768 encapsulation and HMAC-SHA256 proof over challenge + body; deny on invalid key or revoked actor.",
+        "proving_test": "tests/test_adapter.py::test_attack_messaging_end_to_end"
       }
     ],
     "known_limitations": [
-      "ML-DSA-65 signing key is stored in TRACK4_STATE_DIR; external head hash anchoring recommended for out-of-band anchoring.",
-      "Single-node crash recovery semantics; multi-node consensus out of scope for Part C adapter.",
-      "Protected read interface provides zero body disclosure on deny, auditing all attempts."
+      "The audit signing key is stored in the state directory, so anyone who can write there can re-sign (mitigation: export head hash/anchor elsewhere).",
+      "Log verification cannot detect an attacker who rewrites both the log and the key.",
+      "Nodes are simulated on one machine.",
+      "The official validator does not test cryptography, latency or protected_read.",
+      "An attacker who controls the host operating system or kernel is out of scope."
     ]
   },
   "part_a": {

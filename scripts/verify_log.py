@@ -1,4 +1,4 @@
-"""CLI wrapper around app.audit.verify_audit_log with optional anchor verification.
+"""CLI wrapper around auditlog.audit.verify_audit_log with optional anchor verification.
 
 Exit code:
   0: Audit log and checkpoint completely verified.
@@ -8,12 +8,11 @@ Exit code:
 import argparse
 from pathlib import Path
 import sys
-import tempfile
 
 # Add parent directory to path so imports work
 sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
-from app import audit
-from app.store import get_state_dir
+from auditlog import audit
+from auditlog.store import get_state_dir
 
 
 def main():

@@ -13,6 +13,7 @@ _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 @pytest.fixture(scope="module")
 def realtime_server():
+    server._ensure_identities_registered()
     httpd = server.http.server.HTTPServer(("127.0.0.1", 0), server.DemoHandler)
     port = httpd.server_address[1]
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)

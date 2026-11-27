@@ -1,13 +1,14 @@
 """Team application request dispatcher.
 
 Handles setup, read, revoke, audit, and protected_read operations.
-Enforces strict input validation, crash recovery, persistent access control,
-and tamper-evident audit logging.
+Enforces strict input validation, fail-closed access control, crash recovery,
+and tamper-evident post-quantum audit logging.
 """
 
 from typing import Any, Dict
 
-from app import access, audit, recovery, store
+from access import access
+from auditlog import audit, recovery, store
 
 try:
     from messaging.protected_read import protected_read as _kem_protected_read
@@ -25,8 +26,8 @@ def _validate_str_id(value: Any, name: str) -> str:
     return value
 
 
-def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
-    """Dispatch a single request in a fresh process."""
+def _dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
+    """Internal dispatcher for handling valid requests."""
     if not isinstance(request, dict):
         raise ValueError("Request must be a JSON object.")
 
@@ -202,9 +203,11 @@ def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
         res = None
         if _kem_protected_read is not None:
             try:
-                res = _kem_protected_read(public_key, challenge, body)  # her order
+                # Helper argument order: public key first, then challenge, then body
+                res = _kem_protected_read(public_key, challenge, body)
             except Exception:
                 res = None
+
         outcome = "allow" if res is not None else "deny"
         with store.file_lock():
             audit.append_event(
@@ -216,3 +219,36 @@ def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
         return res if res is not None else {"decision": "deny"}
 
     raise ValueError("Unhandled operation.")
+
+
+def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
+    """Fail-closed dispatch wrapper for team application."""
+    try:
+        return _dispatch(request)
+    except Exception:
+        if isinstance(request, dict):
+            op = request.get("op")
+            if op in ("read", "protected_read"):
+                try:
+                    actor = request.get("actor")
+                    if not isinstance(actor, str) or len(actor) > MAX_ID_LEN:
+                        actor = "unknown"
+                    req_id = request.get("request_id")
+                    if not isinstance(req_id, str) or len(req_id) > MAX_ID_LEN:
+                        req_id = ""
+                    with store.file_lock():
+                        audit.append_event(
+                            actor=actor,
+                            action=op,
+                            outcome="deny",
+                            correlation_id=req_id,
+                        )
+                except Exception:
+                    pass
+                return {"decision": "deny"}
+            elif op == "audit":
+                req_id = request.get("request_id")
+                if not isinstance(req_id, str) or len(req_id) > MAX_ID_LEN:
+                    req_id = ""
+                return {"request_id": req_id, "decision": "deny"}
+        raise

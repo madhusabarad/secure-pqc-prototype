@@ -28,14 +28,17 @@ Functions for callers:
 
 Active sessions, pending handshakes, identity keys, and revocation flags live only in process memory (`_ACTIVE_SESSIONS`, `_PENDING_HANDSHAKES`, `_PUBLIC_KEY_REGISTRY`, `_REVOKED_USERS`), and session resumption is not implemented—calling `close_session()` or restarting the process discards all symmetric keys and requires a new handshake. Within an active session, keys do not ratchet per message, so process-memory compromise before `close_session()` exposes messages in that active session (whereas post-handshake leakage of long-term ML-DSA-65 signing keys cannot decrypt closed or previously recorded sessions). Compromising ML-DSA-65 signing keys before or during a handshake permits active impersonation on new or in-flight handshakes, best-effort `bytearray` zeroing cannot erase immutable Python `bytes` copies or OS swap/core dumps, and replay state (`messaging_replay_state.json`) is local to `MSG_STATE_DIR` rather than replicated across nodes.
 
-## Frontend (Full Security Console & Demo)
+## Frontend (Real-Time Post-Quantum Security Platform)
 
-### Purpose
-The demo frontend provides a unified, interactive local Security Operations Center (SOC) console demonstrating the complete Track 4 workflow:
-1. **Lost-Device Access Control & Key Lifecycle**: Setup, immediate revocation enforcement, audit logging, unaffected peer isolation, lost-device re-enrollment, and transactional key rotation.
-2. **SOC Anomaly Detection & Incident Feed**: Ingests distributed synthetic access logs with clock-skew correction and order uncertainty flagging, displays real-time explainable alerts (unapproved privilege escalations, lateral movement hops, data access spikes), and reports benchmark metrics ($F_1 = 1.0$, $0.0$ false alerts/1k, $18.0\,\text{s}$ MTTA).
-3. **PQC Secure Messaging**: Interactive execution of hybrid ML-KEM-768 + X25519 key exchange, ML-DSA-65 signatures, AES-256-GCM transport, replay rejection, and chunk reassembly.
-4. **Tamper-Evident Audit Log & Cryptographic Verification**: Live inspection of canonical JSON Lines SHA-256 hash chains, ML-DSA-65 signed checkpoints, one-click cryptographic verification (`app.audit.verify_audit_log`), and interactive tamper-detection simulation.
+### Purpose & Architecture
+The frontend is a real-time, light-themed Security Operations Center (SOC) and Post-Quantum Security Platform that replaces static simulation scripts with a fully interactive, live web application:
+1. **Live PQC Secure Messenger**: Interactive chat console between peers with live hybrid key exchange (X25519 + ML-KEM-768 authenticated via ML-DSA-65 signatures), AES-256-GCM directional transport, real-time packet inspection (AAD header, nonces, ciphertext), and active adversary attack simulators (live replay rejection, bit-flipping tamper rejection).
+2. **Dynamic Vault & Access Control**: Create custom sensitive documents, assign dynamic ownership policies, test real-time access evaluation and ML-KEM-768 encapsulated protected reads, test immediate lost-device revocation enforcement (instant `DENY`), re-enroll quantum hardware keys, and perform atomic key rotation.
+3. **Live SOC Threat Feed & Anomaly Center**: Real-time event ingestion pipeline with clock-skew compensation and order-uncertainty detection. Inject live adversary threats (unapproved privilege escalations, unauthorized lateral movement hops, bulk data exfiltration bursts) and receive explainable alert cards with MITRE ATT&CK technique IDs and benchmark metrics ($F_1 = 1.0$, $0.0$ false alerts/1k, $18.0\,\text{s}$ MTTA).
+4. **Cryptographic Audit Ledger**: Real-time inspection of canonical JSON Lines SHA-256 hash chains and ML-DSA-65 signed checkpoints, with one-click mathematical verification (`app.audit.verify_audit_log`) and interactive tamper detection.
+
+### Modern Light Theme
+Built with an executive, modern light-theme design system (clean slate background `#f8fafc`, crisp white elevated cards, high-contrast typography `#0f172a`, and vibrant status badges) with no dark themes.
 
 ### How to Run
 1. Start the local server:
@@ -47,29 +50,28 @@ The demo frontend provides a unified, interactive local Security Operations Cent
    http://127.0.0.1:8000
    ```
 
-### Tabs & Capabilities
-- **Tab 1: 🔐 Access & Lost-Device**:
-  - `1. Setup`: Initializes synthetic owners (`user-alex`, `user-blair`) and assets.
-  - `2. Owner Reads`: `user-alex` requests `report-1` $\to$ `ALLOW`.
-  - `3. Revoke Owner`: Simulates lost or stolen device $\to$ `OK`.
-  - `4. Owner Reads Again`: Immediate revocation enforcement $\to$ `DENY`.
-  - `5. Audit`: Verifies denial recorded in signed hash-chained audit log $\to$ `DENY`.
-  - `6. Peer Reads`: Confirms `user-blair` retains access $\to$ `ALLOW`.
-  - `7. Re-enrol Lost Device`: Registers fresh quantum device key for `user-alex` $\to$ `OK`.
-  - `8. Post-Reenrol Read`: Restores authorized access for `user-alex` $\to$ `ALLOW`.
-  - `9. Rotate Key Material`: Atomic key rotation with version cutoff $\to$ `key_version: 2`.
-- **Tab 2: 🚨 Anomaly Detector & SOC Feed**:
-  - Live benchmark HUD: $F_1 = 1.0$, Precision: $1.0$, Recall: $1.0$, False Alerts: $0.0 / 1,000$, MTTA: $18.0\,\text{s}$.
-  - `Ingest Access Logs`: Renders synthetic distributed logs with clock offsets and uncertainty tags.
-  - `Run Anomaly Detector`: Evaluates events and surfaces explainable alerts.
-  - `Inject Unapproved Escalation`: Simulates unauthorized `superadmin` role change without ticket.
-  - `Inject Lateral Movement Hop`: Simulates unauthorized `portal` $\to$ `database_admin` transition.
-- **Tab 3: 💬 PQC Secure Messaging**:
-  - Spawns `messaging.demo_part_a` in an isolated sandbox subprocess and displays live test output.
-- **Tab 4: 📜 Audit Log & Cryptographic Proof**:
-  - Displays canonical SHA-256 chained log entries and ML-DSA-65 checkpoint signatures.
-  - `Run Cryptographic Verification`: Validates hash chain and signature across all entries.
-  - `Simulate Tampering & Detect`: Proves that modifying a single byte in the log is immediately detected.
+### Real-Time Modules
+- **💬 Live PQC Messenger**:
+  - `Establish Hybrid Handshake`: Computes ephemeral X25519 and ML-KEM-768 secrets, signs transcript with ML-DSA-65, and derives session keys via HKDF-SHA256.
+  - `Real-Time Chat Input`: Type and transmit arbitrary encrypted messages with monotonic counter nonces.
+  - `Cryptographic Packet Inspector`: Real-time inspection of encrypted packets on the wire.
+  - `Simulate Replay Attack`: Proves the replay filter immediately rejects duplicate packets (`STATUS_FAILED` $\to$ `REPLAY`).
+  - `Simulate Bit-Flip Tampering`: Proves AES-256-GCM authentication tags catch transit mutations (`STATUS_FAILED` $\to$ `INTEGRITY`).
+  - `Revoke Peer Identity`: Blocks peer credentials and terminates communication.
+- **🔐 Dynamic Vault & Access Control**:
+  - `Create Asset`: Dynamically register custom sensitive resources and owners.
+  - `Request Read`: Real-time policy evaluation (`ALLOW` vs `DENY`).
+  - `ML-KEM-768 Encapsulation`: Executes post-quantum protected read with HMAC verification.
+  - `Revoke Device`: Instant device credential revocation resulting in real-time denial.
+  - `Re-enroll Quantum Key`: Registers fresh device keys and restores authorized access.
+  - `Rotate Keys`: Monotonically increments key versions and commits new key material.
+- **🚨 Live SOC Threat Center**:
+  - Continuous telemetry ingestion stream with clock-skew adjustment.
+  - Threat triggers for MITRE ATT&CK techniques: Privilege Escalation (`T1078.004`), Lateral Movement (`T1021.002`), and Bulk Exfiltration (`T1048`).
+- **📜 Cryptographic Audit Ledger**:
+  - Visual blockchain-style ledger blocks showing Block #, Timestamp, Actor, Action, Previous Hash, and Block Hash.
+  - `Cryptographically Verify Ledger`: Mathematically verifies full SHA-256 hash chains and ML-DSA-65 checkpoint signatures.
+  - `Simulate Byte Tampering`: Live demonstration that mutating even 1 byte in the ledger immediately breaks verification at the exact corrupted block.
 
 ### Notes and Constraints
 - **Standard Library Only**: Runs completely offline using Python 3.12 standard library modules (`http.server`, `subprocess`, `json`, `secrets`, `tempfile`, `sys`, `os`, `pathlib`). No external frontend frameworks or CDN assets required.

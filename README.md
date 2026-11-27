@@ -8,6 +8,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 python -m pytest -q
 python demo.py
+python demo.py
 ```
 
 ## Part A: Secure messaging
